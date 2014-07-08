@@ -5,6 +5,7 @@
 package conductor
 
 import (
+	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
@@ -30,19 +31,24 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+// We need some channels up in here.
+// type channel struct {
+// 	UUID string
+// 	Name string
+// }
+
 // connection is an middleman between the websocket connection and the hub.
 type connection struct {
-	// The websocket connection.
-	ws *websocket.Conn
-
-	// Buffered channel of outbound messages.
-	send chan []byte
+	ws       *websocket.Conn
+	send     chan []byte
+	channels []string
 }
 
 // broadcasting message
 type broadcastWriter struct {
-	conn    *connection
-	message []byte
+	conn        *connection
+	message     []byte
+	channelUUID string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -55,12 +61,13 @@ func (c *connection) readPump() {
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
-		_, message, err := c.ws.ReadMessage()
+		var message Message
+		err := c.ws.ReadJSON(&message)
 		if err != nil {
+			log.Println(skittles.BoldRed(err))
 			break
 		}
-		log.Println(string(message))
-		h.broadcast <- broadcastWriter{conn: c, message: message}
+		h.broadcast <- broadcastWriter{conn: c, message: []byte(message.Body), channelUUID: message.ChannelName}
 	}
 }
 
@@ -110,7 +117,9 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	c := &connection{send: make(chan []byte, 256), ws: ws}
+	var channels []string
+	channels = append(channels, "hello")
+	c := &connection{send: make(chan []byte, 256), ws: ws, channels: channels}
 	h.register <- c
 	log.Println("starting reader/writer")
 	go c.writePump()

@@ -8,7 +8,7 @@ package conductor
 // connections.
 type hub struct {
 	// Registered connections.
-	connections map[*connection]bool
+	channels map[string][]*connection
 
 	// Inbound messages from the connections.
 	broadcast chan broadcastWriter
@@ -21,31 +21,47 @@ type hub struct {
 }
 
 var h = hub{
-	broadcast:   make(chan broadcastWriter),
-	register:    make(chan *connection),
-	unregister:  make(chan *connection),
-	connections: make(map[*connection]bool),
+	broadcast:  make(chan broadcastWriter),
+	register:   make(chan *connection),
+	unregister: make(chan *connection),
+	channels:   make(map[string][]*connection),
 }
 
 func (h *hub) run() {
 	for {
 		select {
 		case c := <-h.register:
-			h.connections[c] = true
+			h.addConnection(c)
 		case c := <-h.unregister:
-			delete(h.connections, c)
-			close(c.send)
+			closeConnections(c, h)
 		case b := <-h.broadcast:
-			for c := range h.connections {
+			for _, c := range h.channels[b.channelUUID] {
 				if c != b.conn {
 					select {
 					case c.send <- b.message:
 					default:
-						close(c.send)
-						delete(h.connections, c)
+						closeConnections(c, h)
 					}
 				}
 			}
 		}
+	}
+}
+
+func closeConnections(c *connection, h *hub) {
+	close(c.send)
+	for _, name := range c.channels {
+		conns := h.channels[name]
+		for i, conn := range conns {
+			if c == conn {
+				conns = append(conns[:i], conns[i+1:]...)
+			}
+		}
+	}
+}
+
+func (h *hub) addConnection(c *connection) {
+	for _, channel := range c.channels {
+		h.channels[channel] = append(h.channels[channel], c)
 	}
 }
