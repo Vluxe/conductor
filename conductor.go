@@ -13,6 +13,7 @@ import (
 
 var addr = flag.String("addr", ":8080", "http service address")
 
+// Start up the core websocket server...
 func CreateServer() {
 	log.Println(skittles.Cyan("starting server..."))
 	go h.run()

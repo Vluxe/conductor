@@ -31,6 +31,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+var author ConductorAuth
+
 // We need some channels up in here.
 // type channel struct {
 // 	UUID string
@@ -49,6 +51,13 @@ type broadcastWriter struct {
 	conn        *connection
 	message     []byte
 	channelUUID string
+}
+
+// interface for auth methods
+type ConductorAuth interface {
+	InitalAuthHander(r *http.Request) bool
+	ChannelAuthHander() bool
+	MessageAuthHander() bool
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -109,19 +118,32 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	log.Println("connection upgraded!!")
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		if _, ok := err.(websocket.HandshakeError); !ok {
-			log.Println(err)
-		}
-		return
+
+	authStatus := true
+	if author != nil {
+		authStatus = author.InitalAuthHander(r)
 	}
-	var channels []string
-	channels = append(channels, "hello")
-	c := &connection{send: make(chan []byte, 256), ws: ws, channels: channels}
-	h.register <- c
-	log.Println("starting reader/writer")
-	go c.writePump()
-	c.readPump()
+
+	if authStatus {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			if _, ok := err.(websocket.HandshakeError); !ok {
+				log.Println(err)
+			}
+			return
+		}
+		var channels []string
+		channels = append(channels, "hello")
+		c := &connection{send: make(chan []byte, 256), ws: ws, channels: channels}
+		h.register <- c
+		go c.writePump()
+		c.readPump()
+	} else {
+		http.Error(w, "Failed ", 401)
+	}
+}
+
+// Pass in your implemented type of Auth interface.
+func ServeAuth(a ConductorAuth) {
+	author = a
 }
