@@ -1,7 +1,6 @@
 // Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
 // code borrowed from example chat program of
 // https://github.com/gorilla/websocket
-
 package conductor
 
 import (
@@ -31,7 +30,10 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-var author ConductorAuth
+var (
+	author     ConductorAuth
+	persistent ConductorPersistent
+)
 
 // We need some channels up in here.
 // type channel struct {
@@ -60,6 +62,20 @@ type ConductorAuth interface {
 	MessageAuthHander() bool
 }
 
+// pass in your implemented type of ConductorAuth interface.
+func ServeAuth(a ConductorAuth) {
+	author = a
+}
+
+type ConductorPersistent interface {
+	PersistentHandler()
+}
+
+// pass in your implemented type of ConductorPersistent interface.
+func ServePersistent(p ConductorPersistent) {
+	persistent = p
+}
+
 // readPump pumps messages from the websocket connection to the hub.
 func (c *connection) readPump() {
 	defer func() {
@@ -76,7 +92,35 @@ func (c *connection) readPump() {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
+		if message.OpCode == Bind {
+			c.bind(message)
+		}
+
+		persistent.PersistentHandler()
 		h.broadcast <- broadcastWriter{conn: c, message: []byte(message.Body), channelUUID: message.ChannelName}
+	}
+}
+
+// bind to a channel.
+func (c *connection) bind(message Message) {
+	authStatus := true
+	if author != nil {
+		authStatus = author.ChannelAuthHander()
+	}
+
+	if authStatus {
+		addChannel := true
+		for _, channel := range c.channels {
+			if channel == message.ChannelName {
+				addChannel = false
+			}
+		}
+		if addChannel {
+			h.register <- c
+			c.channels = append(c.channels, message.ChannelName)
+		}
+	} else {
+		log.Println("what do we do now?")
 	}
 }
 
@@ -93,7 +137,7 @@ func (c *connection) writePump() {
 		ticker.Stop()
 		c.ws.Close()
 	}()
-	log.Println("writing message")
+
 	for {
 		select {
 		case message, ok := <-c.send:
@@ -101,7 +145,12 @@ func (c *connection) writePump() {
 				c.write(websocket.CloseMessage, []byte{})
 				return
 			}
-			if err := c.write(websocket.TextMessage, message); err != nil {
+			authStatus := true
+			if author != nil {
+				authStatus = author.MessageAuthHander()
+			}
+			err := c.write(websocket.TextMessage, message)
+			if err != nil && authStatus {
 				return
 			}
 		case <-ticker.C:
@@ -133,7 +182,6 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var channels []string
-		channels = append(channels, "hello")
 		c := &connection{send: make(chan []byte, 256), ws: ws, channels: channels}
 		h.register <- c
 		go c.writePump()
@@ -141,9 +189,4 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 	} else {
 		http.Error(w, "Failed ", 401)
 	}
-}
-
-// Pass in your implemented type of Auth interface.
-func ServeAuth(a ConductorAuth) {
-	author = a
 }

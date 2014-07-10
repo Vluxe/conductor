@@ -1,7 +1,6 @@
 // Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
 // code borrowed from example chat program of
 // https://github.com/gorilla/websocket
-
 package conductor
 
 import (
