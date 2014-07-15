@@ -16,4 +16,5 @@ type Message struct {
 	Body        string        `json:"body"`
 	ChannelName string        `json:"channel_name"`
 	OpCode      MessageOpCode `json:"opcode"`
+	Additional  interface{}   `json:"additional"`
 }

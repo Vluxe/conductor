@@ -40,7 +40,7 @@ func (h *hub) run() {
 			log.Println("closing connections...")
 			closeConnections(c, h)
 		case b := <-h.broadcast:
-			for _, c := range h.channels[b.channelUUID] {
+			for _, c := range h.channels[b.message.ChannelName] {
 				if c != b.conn {
 					select {
 					case c.send <- b.message:

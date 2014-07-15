@@ -4,6 +4,7 @@
 package conductor
 
 import (
+	"encoding/json"
 	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
 	"log"
@@ -44,15 +45,14 @@ var (
 // connection is an middleman between the websocket connection and the hub.
 type connection struct {
 	ws       *websocket.Conn
-	send     chan []byte
+	send     chan Message
 	channels []string
 }
 
 // broadcasting message
 type broadcastWriter struct {
-	conn        *connection
-	message     []byte
-	channelUUID string
+	conn    *connection
+	message Message
 }
 
 // interface for auth methods
@@ -97,7 +97,7 @@ func (c *connection) readPump() {
 		}
 
 		persistent.PersistentHandler()
-		h.broadcast <- broadcastWriter{conn: c, message: []byte(message.Body), channelUUID: message.ChannelName}
+		h.broadcast <- broadcastWriter{conn: c, message: message}
 	}
 }
 
@@ -125,9 +125,10 @@ func (c *connection) bind(message Message) {
 }
 
 // write writes a message with the given message type and payload.
-func (c *connection) write(mt int, payload []byte) error {
+func (c *connection) write(mt int, payload Message) error {
 	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-	return c.ws.WriteMessage(mt, payload)
+	buf, _ := json.Marshal(payload)
+	return c.ws.WriteMessage(mt, buf)
 }
 
 // writePump pumps messages from the hub to the websocket connection.
@@ -142,7 +143,7 @@ func (c *connection) writePump() {
 		select {
 		case message, ok := <-c.send:
 			if !ok {
-				c.write(websocket.CloseMessage, []byte{})
+				c.write(websocket.CloseMessage, Message{})
 				return
 			}
 			authStatus := true
@@ -154,7 +155,7 @@ func (c *connection) writePump() {
 				return
 			}
 		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
+			if err := c.write(websocket.PingMessage, Message{}); err != nil {
 				return
 			}
 		}
@@ -182,7 +183,7 @@ func serveWs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var channels []string
-		c := &connection{send: make(chan []byte, 256), ws: ws, channels: channels}
+		c := &connection{send: make(chan Message, 256), ws: ws, channels: channels}
 		h.register <- c
 		go c.writePump()
 		c.readPump()
