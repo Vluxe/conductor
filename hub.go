@@ -1,5 +1,5 @@
 // Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
-// code borrowed from example chat program of
+// some code borrowed from example chat program of
 // https://github.com/gorilla/websocket
 package conductor
 
@@ -23,11 +23,14 @@ type hub struct {
 	unregister chan *connection
 }
 
-var h = hub{
-	broadcast:  make(chan broadcastWriter),
-	register:   make(chan *connection),
-	unregister: make(chan *connection),
-	channels:   make(map[string][]*connection),
+// create our hub.
+func createHub() hub {
+	return hub{
+		broadcast:  make(chan broadcastWriter),
+		register:   make(chan *connection),
+		unregister: make(chan *connection),
+		channels:   make(map[string][]*connection),
+	}
 }
 
 // runloop that controls broadcasting messages to other peers.
@@ -37,25 +40,16 @@ func (h *hub) run() {
 		case c := <-h.register:
 			h.addConnection(c)
 		case c := <-h.unregister:
-			log.Println("closing connections...")
-			closeConnections(c, h)
+			h.closeConnections(c)
 		case b := <-h.broadcast:
-			for _, c := range h.channels[b.message.ChannelName] {
-				if c != b.conn {
-					select {
-					case c.send <- b.message:
-					default:
-						closeConnections(c, h)
-					}
-				}
-			}
+			h.broadcastMessage(b)
 		}
 	}
 }
 
 // closes all the channels in the connection.
-func closeConnections(c *connection, h *hub) {
-	//close(c.send) trying to close a closed channel...
+func (h *hub) closeConnections(c *connection) {
+	log.Println("closing connections...")
 	for _, name := range c.channels {
 		conns := h.channels[name]
 		for i, conn := range conns {
@@ -70,5 +64,18 @@ func closeConnections(c *connection, h *hub) {
 func (h *hub) addConnection(c *connection) {
 	for _, channel := range c.channels {
 		h.channels[channel] = append(h.channels[channel], c)
+	}
+}
+
+// broadcast message out on channel.
+func (h *hub) broadcastMessage(b broadcastWriter) {
+	for _, c := range h.channels[b.message.ChannelName] {
+		if c != b.conn {
+			select {
+			case c.send <- b.message:
+			default:
+				h.closeConnections(c)
+			}
+		}
 	}
 }
