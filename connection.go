@@ -5,10 +5,11 @@ package conductor
 
 import (
 	"encoding/json"
-	"github.com/acmacalister/skittles"
-	"github.com/gorilla/websocket"
 	"log"
 	"time"
+
+	"github.com/acmacalister/skittles"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -54,8 +55,25 @@ func (c *connection) readPump(server *Server) {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
+
 		if message.OpCode == Bind {
+			log.Println("binding...")
 			c.bind(message, server)
+		}
+
+		if message.OpCode == Info {
+			log.Println("connect to new peer...")
+			connected := false
+			for _, server := range server.peers {
+				if server == message.Body {
+					connected = true
+				}
+			}
+			log.Println(connected)
+			if connected == false {
+				log.Println(message.Body)
+				server.connectToPeer(message.Body)
+			}
 		}
 
 		server.Notification.PersistentHandler()

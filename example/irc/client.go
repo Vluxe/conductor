@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"github.com/Vluxe/conductor"
 	"github.com/acmacalister/skittles"
@@ -11,10 +12,13 @@ import (
 	"time"
 )
 
+var addr = flag.Int("addr", 8080, "http service address")
+
 type color func(interface{}) string
 
 func main() {
-	client, err := conductor.CreateClient("ws://localhost:8080")
+	flag.Parse()
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr))
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}

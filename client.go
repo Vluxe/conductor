@@ -2,10 +2,11 @@ package conductor
 
 import (
 	"encoding/json"
-	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
 	"net/url"
+
+	"github.com/gorilla/websocket"
 )
 
 type Client struct {
@@ -14,6 +15,9 @@ type Client struct {
 
 func CreateClient(serverUrl string) (Client, error) {
 	u, err := url.Parse(serverUrl)
+	if err != nil {
+		return Client{}, err
+	}
 	bufferSize := 1024
 	websocketProtocol := "chat, superchat"
 	header := make(http.Header)
@@ -21,6 +25,9 @@ func CreateClient(serverUrl string) (Client, error) {
 	header.Add("Origin", u.String())
 
 	conn, err := net.Dial("tcp", u.Host)
+	if err != nil {
+		return Client{}, err
+	}
 	webConn, _, err := websocket.NewClient(conn, u, header, bufferSize, bufferSize)
 
 	return Client{conn: webConn}, err

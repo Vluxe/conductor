@@ -1,6 +1,7 @@
 package conductor
 
 import (
+	"fmt"
 	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
 	"log"
@@ -21,19 +22,23 @@ type Server struct {
 	hub          hub
 	Auth         auth
 	Notification notification
+	EnablePeers  bool
+	peers        []string
+	Port         int
 }
 
-func CreateServer() Server {
+func CreateServer(port int) Server {
 	return Server{
-		hub: createHub(),
+		hub:  createHub(),
+		Port: port,
 	}
 }
 
 func (server *Server) Start() {
-	log.Println(skittles.Cyan("starting server..."))
+	log.Println(skittles.Cyan(fmt.Sprintf("starting server on %d...", server.Port)))
 	go server.hub.run()
 	http.HandleFunc("/", server.websocketHandler)
-	err := http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
@@ -69,5 +74,52 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		c.readPump(server)
 	} else {
 		http.Error(w, "Failed ", 401)
+	}
+}
+
+func (server *Server) AddPeer(peer string) {
+	server.connectToPeer(peer)
+}
+
+func (server *Server) LoadPeers(peers []string) {
+	server.peers = append(server.peers, peers...)
+	server.connectToPeers()
+}
+
+func (server *Server) connectToPeer(peer string) {
+	client, err := CreateClient(peer)
+	if err != nil {
+		log.Println(skittles.BoldRed(err))
+		return
+	}
+	server.peers = append(server.peers, peer)
+	message := Message{Token: "haha", Name: "a peer...", Body: fmt.Sprintf("ws://localhost:%d", server.Port), ChannelName: "hello", OpCode: Info}
+	err = client.Writer(&message)
+	if err != nil {
+		log.Fatal(skittles.BoldRed(err))
+	}
+	message = Message{Token: "haha", Name: "channel", Body: "binding...", ChannelName: "hello", OpCode: Bind}
+	err = client.Writer(&message)
+	if err != nil {
+		log.Fatal(skittles.BoldRed(err))
+	}
+	go client.reader(server)
+}
+
+func (server *Server) connectToPeers() {
+	for _, peer := range server.peers {
+		server.connectToPeer(peer)
+	}
+}
+
+func (client *Client) reader(server *Server) {
+	for {
+		log.Println("in here!!")
+		message, err := client.Reader()
+		if err != nil {
+			log.Println(skittles.BoldRed(err))
+			break
+		}
+		server.hub.broadcast <- broadcastWriter{conn: nil, message: message}
 	}
 }
