@@ -31,12 +31,14 @@ type connection struct {
 	ws       *websocket.Conn
 	send     chan Message
 	channels []string
+	peer     bool
 }
 
 // broadcasting message
 type broadcastWriter struct {
 	conn    *connection
 	message Message
+	peer    bool
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -57,27 +59,25 @@ func (c *connection) readPump(server *Server) {
 		}
 
 		if message.OpCode == Bind {
-			log.Println("binding...")
 			c.bind(message, server)
 		}
 
 		if message.OpCode == Info {
-			log.Println("connect to new peer...")
 			connected := false
 			for _, server := range server.peers {
 				if server == message.Body {
 					connected = true
 				}
 			}
-			log.Println(connected)
+
+			c.bind(message, server)
 			if connected == false {
-				log.Println(message.Body)
 				server.connectToPeer(message.Body)
 			}
 		}
 
 		server.Notification.PersistentHandler()
-		server.hub.broadcast <- broadcastWriter{conn: c, message: message}
+		server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
 	}
 }
 

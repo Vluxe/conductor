@@ -70,6 +70,9 @@ func (h *hub) addConnection(c *connection) {
 // broadcast message out on channel.
 func (h *hub) broadcastMessage(b broadcastWriter) {
 	for _, c := range h.channels[b.message.ChannelName] {
+		if b.peer && c.peer {
+			continue
+		}
 		if c != b.conn {
 			select {
 			case c.send <- b.message:

@@ -18,7 +18,7 @@ type color func(interface{}) string
 
 func main() {
 	flag.Parse()
-	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr))
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), false)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
@@ -47,6 +47,7 @@ func writer(client *conductor.Client) {
 		opcode := conductor.Write
 		if !joined {
 			opcode = conductor.Bind
+			joined = true
 		}
 
 		message := conductor.Message{Token: "haha", Name: name, Body: string(line), ChannelName: "hello", OpCode: opcode}

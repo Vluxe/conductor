@@ -49,6 +49,11 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+	peer := false
+
+	if r.Header["Peer"] != nil {
+		peer = true
+	}
 
 	authStatus := true
 	if server.Auth != nil {
@@ -68,7 +73,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c := &connection{send: make(chan Message, 256), ws: ws}
+		c := &connection{send: make(chan Message, 256), ws: ws, peer: peer}
 		server.hub.register <- c
 		go c.writePump(server)
 		c.readPump(server)
@@ -87,7 +92,7 @@ func (server *Server) LoadPeers(peers []string) {
 }
 
 func (server *Server) connectToPeer(peer string) {
-	client, err := CreateClient(peer)
+	client, err := CreateClient(peer, true)
 	if err != nil {
 		log.Println(skittles.BoldRed(err))
 		return
@@ -114,12 +119,12 @@ func (server *Server) connectToPeers() {
 
 func (client *Client) reader(server *Server) {
 	for {
-		log.Println("in here!!")
 		message, err := client.Reader()
 		if err != nil {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
-		server.hub.broadcast <- broadcastWriter{conn: nil, message: message}
+
+		server.hub.broadcast <- broadcastWriter{conn: nil, message: message, peer: true}
 	}
 }
