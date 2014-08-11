@@ -63,6 +63,7 @@ func (h *hub) closeConnections(c *connection) {
 // add a connection a channel.
 func (h *hub) addConnection(c *connection) {
 	for _, channel := range c.channels {
+		log.Println(channel)
 		h.channels[channel] = append(h.channels[channel], c)
 	}
 }

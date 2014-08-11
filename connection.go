@@ -32,6 +32,7 @@ type connection struct {
 	send     chan Message
 	channels []string
 	peer     bool
+	peerName string
 }
 
 // broadcasting message
@@ -62,16 +63,23 @@ func (c *connection) readPump(server *Server) {
 			c.bind(message, server)
 		}
 
+		// garbage. Need to rethink the data structure we are using.
 		if message.OpCode == Info {
-			connected := false
-			for _, server := range server.peers {
-				if server == message.Body {
-					connected = true
+			shouldConnect := true
+			log.Println(c.channels)
+			for _, channel := range c.channels {
+				connections := server.hub.channels[channel]
+				if connections != nil {
+					for _, conn := range connections {
+						log.Println("piss on a cracker")
+						if c.peerName == conn.peerName {
+							shouldConnect = false
+						}
+					}
 				}
 			}
-
-			c.bind(message, server)
-			if connected == false {
+			if shouldConnect {
+				c.bind(message, server)
 				server.connectToPeer(message.Body)
 			}
 		}

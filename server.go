@@ -23,7 +23,6 @@ type Server struct {
 	Auth         auth
 	Notification notification
 	EnablePeers  bool
-	peers        []string
 	Port         int
 }
 
@@ -50,9 +49,12 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer := false
+	var name string
 
 	if r.Header["Peer"] != nil {
 		peer = true
+		name = r.Header["Peer"][0]
+
 	}
 
 	authStatus := true
@@ -73,7 +75,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c := &connection{send: make(chan Message, 256), ws: ws, peer: peer}
+		c := &connection{send: make(chan Message, 256), ws: ws, peer: peer, peerName: name}
 		server.hub.register <- c
 		go c.writePump(server)
 		c.readPump(server)
@@ -86,19 +88,14 @@ func (server *Server) AddPeer(peer string) {
 	server.connectToPeer(peer)
 }
 
-func (server *Server) LoadPeers(peers []string) {
-	server.peers = append(server.peers, peers...)
-	server.connectToPeers()
-}
-
 func (server *Server) connectToPeer(peer string) {
 	client, err := CreateClient(peer, true)
 	if err != nil {
 		log.Println(skittles.BoldRed(err))
 		return
 	}
-	server.peers = append(server.peers, peer)
-	message := Message{Token: "haha", Name: "a peer...", Body: fmt.Sprintf("ws://localhost:%d", server.Port), ChannelName: "hello", OpCode: Info}
+
+	message := Message{Token: "haha", Name: "abc123", Body: fmt.Sprintf("ws://localhost:%d", server.Port), ChannelName: "hello", OpCode: Info}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
@@ -109,12 +106,6 @@ func (server *Server) connectToPeer(peer string) {
 		log.Fatal(skittles.BoldRed(err))
 	}
 	go client.reader(server)
-}
-
-func (server *Server) connectToPeers() {
-	for _, peer := range server.peers {
-		server.connectToPeer(peer)
-	}
 }
 
 func (client *Client) reader(server *Server) {
