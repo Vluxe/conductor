@@ -58,34 +58,19 @@ func (c *connection) readPump(server *Server) {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
+		// Peer message wanting to connect to a peer
+		if message.OpCode == Peer {
+			log.Println("peer url:", message.Body)
+			//c.bind(message, server)
+			server.connectToPeer(message.Body)
+		} else {
 
-		if message.OpCode == Bind {
-			c.bind(message, server)
-		}
-
-		// garbage. Need to rethink the data structure we are using.
-		if message.OpCode == Info {
-			shouldConnect := true
-			log.Println(c.channels)
-			for _, channel := range c.channels {
-				connections := server.hub.channels[channel]
-				if connections != nil {
-					for _, conn := range connections {
-						log.Println("piss on a cracker")
-						if c.peerName == conn.peerName {
-							shouldConnect = false
-						}
-					}
-				}
-			}
-			if shouldConnect {
+			if message.OpCode == Bind {
 				c.bind(message, server)
-				server.connectToPeer(message.Body)
 			}
+			server.Notification.PersistentHandler()
+			server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
 		}
-
-		server.Notification.PersistentHandler()
-		server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
 	}
 }
 
@@ -104,7 +89,7 @@ func (c *connection) bind(message Message, server *Server) {
 			}
 		}
 		if addChannel {
-			server.hub.register <- c
+			server.hub.bind <- broadcastWriter{conn: c, message: message, peer: false}
 			c.channels = append(c.channels, message.ChannelName)
 		}
 	} else {

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Vluxe/conductor"
+	"log"
 )
 
 type Storage int
@@ -16,7 +17,9 @@ func main() {
 	var s Storage
 	server := conductor.CreateServer(*addr)
 	server.Notification = s
-	server.AddPeer(fmt.Sprintf("ws://localhost:%d", *peer))
+	peerUrl := fmt.Sprintf("ws://localhost:%d", *peer)
+	log.Println("peerUrl: ", peerUrl)
+	server.AddPeer(peerUrl)
 	server.Start()
 }
 

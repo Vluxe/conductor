@@ -7,6 +7,7 @@ const (
 	Unbind
 	Write
 	Info
+	Peer
 )
 
 // Struct of message json.
