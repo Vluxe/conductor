@@ -13,7 +13,7 @@ type Client struct {
 	conn *websocket.Conn
 }
 
-func CreateClient(serverUrl string, peer bool) (Client, error) {
+func CreateClient(serverUrl string, peerName string) (Client, error) {
 	u, err := url.Parse(serverUrl)
 	if err != nil {
 		return Client{}, err
@@ -23,8 +23,8 @@ func CreateClient(serverUrl string, peer bool) (Client, error) {
 	header := make(http.Header)
 	header.Add("Sec-WebSocket-Protocol", websocketProtocol)
 	header.Add("Origin", u.String())
-	if peer {
-		header.Add("Peer", "true")
+	if peerName != "" {
+		header.Add("Peer", peerName)
 	}
 
 	conn, err := net.Dial("tcp", u.Host)
