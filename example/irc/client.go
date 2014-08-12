@@ -18,7 +18,7 @@ type color func(interface{}) string
 
 func main() {
 	flag.Parse()
-	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "")
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "", "")
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
@@ -44,9 +44,9 @@ func writer(client *conductor.Client) {
 			log.Fatal(skittles.BoldRed(err))
 		}
 
-		opcode := conductor.Write
+		opcode := conductor.WriteOpCode
 		if !joined {
-			opcode = conductor.Bind
+			opcode = conductor.BindOpCode
 			joined = true
 		}
 
@@ -70,9 +70,9 @@ func reader(client *conductor.Client) {
 			userColorMap[message.Name] = randomColor()
 			el = userColorMap[message.Name]
 		}
-		if message.OpCode == conductor.Bind {
+		if message.OpCode == conductor.BindOpCode {
 			fmt.Printf(el("%s joined the chat"), message.Name)
-		} else if message.OpCode == conductor.Write {
+		} else if message.OpCode == conductor.WriteOpCode {
 			fmt.Printf(el("%s: %s"), message.Name, message.Body)
 		}
 	}

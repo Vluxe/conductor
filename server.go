@@ -12,12 +12,12 @@ import (
 
 type auth interface {
 	InitalAuthHandler(r *http.Request) bool
-	ChannelAuthHandler() bool
-	MessageAuthHandler() bool
+	ChannelAuthHandler(message Message) bool
+	MessageAuthHandler(message Message) bool
 }
 
 type notification interface {
-	PersistentHandler()
+	PersistentHandler(message Message)
 }
 
 type Server struct {
@@ -26,6 +26,7 @@ type Server struct {
 	Notification notification
 	EnablePeers  bool
 	Port         int
+	AuthToken    string
 }
 
 //Creates a new Server struct to work with
@@ -39,7 +40,7 @@ func CreateServer(port int) Server {
 //Starts the server
 func (server *Server) Start() {
 	log.Println(skittles.Cyan(fmt.Sprintf("starting server on %d...", server.Port)))
-	log.Println("uuid is:", guid.NewUUID().String())
+	//log.Println("uuid is:", guid.NewUUID().String())
 	go server.hub.run()
 	http.HandleFunc("/", server.websocketHandler)
 	err := http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
@@ -55,23 +56,30 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
+	peer := false
+	name := r.Header.Get("Peer")
+	peerToken := r.Header.Get("PeerToken")
+	if name != "" {
+		peer = true
+		if server.hub.ifConnectionExist(name) {
+			log.Println("Already connected to peer:", name)
+			http.Error(w, "", http.StatusOK) //not sure if we want this or not
+		}
+	}
 	authStatus := true
-	if server.Auth != nil {
+	if peer { //do peer stuff
+		testToken := HashToken(server.AuthToken)
+		if testToken != peerToken {
+			authStatus = false
+		}
+
+	}
+	if !peer && server.Auth != nil {
 		authStatus = server.Auth.InitalAuthHandler(r)
 	}
+
 	if authStatus {
-		peer := false
-		name := r.Header.Get("Peer")
-		log.Println("peer header", name)
-		if name != "" {
-			peer = true
-			if server.hub.ifConnectionExist(name) {
-				log.Println("Already connected to peer:", name)
-				http.Error(w, "", http.StatusOK) //not sure if we want this or not
-			} else {
-				log.Println("Connecting to a new peer:", name)
-			}
-		} else {
+		if !peer {
 			name = guid.NewGUID().String() //some random name for the clients
 		}
 		upgrader := websocket.Upgrader{
@@ -102,26 +110,24 @@ func (server *Server) AddPeer(peer string) {
 
 //connects to a peer server by connecting like a client, but with a special header and message
 func (server *Server) connectToPeer(peer string) {
-	client, err := CreateClient(peer, guid.NewUUID().String())
+	client, err := CreateClient(peer, guid.NewUUID().String(), server.AuthToken)
 	if err != nil {
 		log.Println(skittles.BoldRed(err))
 		return
 	}
 	log.Println("connecting to peer named:", peer)
-	//need real tokens here...
 
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	message := Message{Token: "haha", Name: "", Body: selfUrl, ChannelName: "", OpCode: Peer}
+	message := Message{Token: server.AuthToken, Name: "", Body: selfUrl, ChannelName: "", OpCode: PeerOpCode}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
 	//go through and bind to all the channels we have on this server to our peer so we get the messages
 	for name, _ := range server.hub.channels {
-		log.Printf("peer: %s create channel: %s", peer, name)
-		message := Message{Token: "haha", Name: "", Body: "", ChannelName: name, OpCode: Bind}
+		message := Message{Token: server.AuthToken, Name: "", Body: "", ChannelName: name, OpCode: BindOpCode}
 		err = client.Writer(&message)
 		if err != nil {
 			log.Fatal(skittles.BoldRed(err))

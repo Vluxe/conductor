@@ -19,10 +19,11 @@ func main() {
 	server.Notification = s
 	peerUrl := fmt.Sprintf("ws://localhost:%d", *peer)
 	log.Println("peerUrl: ", peerUrl)
+	server.AuthToken = "FakeToken"
 	server.AddPeer(peerUrl)
 	server.Start()
 }
 
-func (s Storage) PersistentHandler() {
-	fmt.Println("store some stuff...")
+func (s Storage) PersistentHandler(message conductor.Message) {
+	fmt.Println("store some stuff: ", message.Body)
 }

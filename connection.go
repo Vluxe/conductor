@@ -5,11 +5,10 @@ package conductor
 
 import (
 	"encoding/json"
-	"log"
-	"time"
-
 	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
+	"log"
+	"time"
 )
 
 const (
@@ -59,17 +58,20 @@ func (c *connection) readPump(server *Server) {
 			break
 		}
 		// Peer message wanting to connect to a peer
-		if message.OpCode == Peer {
-			log.Println("peer url:", message.Body)
-			//c.bind(message, server)
+		if message.OpCode == PeerOpCode {
 			server.connectToPeer(message.Body)
 		} else {
-
-			if message.OpCode == Bind {
+			if message.OpCode == BindOpCode {
 				c.bind(message, server)
+			} else if message.OpCode == UnBindOpCode {
+				c.unbind(message, server)
 			}
-			server.Notification.PersistentHandler()
-			server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
+			if server.Notification != nil {
+				server.Notification.PersistentHandler(message)
+			}
+			if c.canWrite(message, server) {
+				server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
+			}
 		}
 	}
 }
@@ -77,8 +79,8 @@ func (c *connection) readPump(server *Server) {
 // bind to a channel.
 func (c *connection) bind(message Message, server *Server) {
 	authStatus := true
-	if server.Auth != nil {
-		authStatus = server.Auth.ChannelAuthHandler()
+	if !c.peer && server.Auth != nil {
+		authStatus = server.Auth.ChannelAuthHandler(message)
 	}
 
 	if authStatus {
@@ -86,6 +88,7 @@ func (c *connection) bind(message Message, server *Server) {
 		for _, channel := range c.channels {
 			if channel == message.ChannelName {
 				addChannel = false
+				break
 			}
 		}
 		if addChannel {
@@ -95,6 +98,44 @@ func (c *connection) bind(message Message, server *Server) {
 	} else {
 		log.Println("what do we do now?")
 	}
+}
+
+//unbind from a channel
+func (c *connection) unbind(message Message, server *Server) {
+	authStatus := true
+	if !c.peer && server.Auth != nil {
+		authStatus = server.Auth.ChannelAuthHandler(message)
+	}
+
+	if authStatus {
+		for i, channel := range c.channels {
+			if channel == message.ChannelName {
+				c.channels = append(c.channels[:i], c.channels[i+1:]...)
+				break
+			}
+		}
+		server.hub.unbind <- broadcastWriter{conn: c, message: message, peer: false}
+	} else {
+		log.Println("what do we do now?")
+	}
+}
+
+//check and make sure we can write this
+func (c *connection) canWrite(message Message, server *Server) bool {
+	authStatus := true
+	if !c.peer && server.Auth != nil {
+		authStatus = server.Auth.MessageAuthHandler(message)
+	}
+	//check if this a channel the client is bound to
+	if authStatus {
+		authStatus = false
+		for _, channel := range c.channels {
+			if channel == message.ChannelName {
+				return true
+			}
+		}
+	}
+	return authStatus
 }
 
 // writePump pumps messages from the hub to the websocket connection.
@@ -114,7 +155,7 @@ func (c *connection) writePump(server *Server) {
 			}
 			authStatus := true
 			if server.Auth != nil {
-				authStatus = server.Auth.MessageAuthHandler()
+				authStatus = server.Auth.MessageAuthHandler(message)
 			}
 			err := c.write(websocket.TextMessage, message)
 			if err != nil && authStatus {

@@ -22,6 +22,9 @@ type hub struct {
 	// Join a new channel
 	bind chan broadcastWriter
 
+	// leave a new channel
+	unbind chan broadcastWriter
+
 	// Register requests from the connections.
 	register chan *connection
 
@@ -36,6 +39,7 @@ func createHub() hub {
 		register:   make(chan *connection),
 		unregister: make(chan *connection),
 		bind:       make(chan broadcastWriter),
+		unbind:     make(chan broadcastWriter),
 		channels:   make(map[string][]*connection),
 		peers:      make(map[string]*connection),
 	}
@@ -53,6 +57,8 @@ func (h *hub) run() {
 			h.broadcastMessage(b)
 		case b := <-h.bind:
 			h.bindChannel(b)
+		case b := <-h.unbind:
+			h.unbindChannel(b)
 		}
 	}
 }
@@ -109,6 +115,17 @@ func (h *hub) bindChannel(b broadcastWriter) {
 		}
 	}
 	h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], b.conn)
+}
+
+//unbind a connection from a channel
+func (h *hub) unbindChannel(b broadcastWriter) {
+	conns := h.channels[b.message.ChannelName]
+	for i, conn := range conns {
+		if b.conn == conn {
+			h.channels[b.message.ChannelName] = append(conns[:i], conns[i+1:]...)
+			break
+		}
+	}
 }
 
 // broadcast message out on channel.

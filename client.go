@@ -2,18 +2,17 @@ package conductor
 
 import (
 	"encoding/json"
+	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
 	"net/url"
-
-	"github.com/gorilla/websocket"
 )
 
 type Client struct {
 	conn *websocket.Conn
 }
 
-func CreateClient(serverUrl string, peerName string) (Client, error) {
+func CreateClient(serverUrl string, peerName, peerToken string) (Client, error) {
 	u, err := url.Parse(serverUrl)
 	if err != nil {
 		return Client{}, err
@@ -25,6 +24,7 @@ func CreateClient(serverUrl string, peerName string) (Client, error) {
 	header.Add("Origin", u.String())
 	if peerName != "" {
 		header.Add("Peer", peerName)
+		header.Add("PeerToken", HashToken(peerToken))
 	}
 
 	conn, err := net.Dial("tcp", u.Host)
