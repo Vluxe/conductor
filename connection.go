@@ -5,6 +5,7 @@ package conductor
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
 	"log"
@@ -31,22 +32,21 @@ type connection struct {
 	send     chan Message
 	channels []string
 	peer     bool
-	peerName string
+	name     string
+	token    string
 }
 
 // broadcasting message
 type broadcastWriter struct {
 	conn    *connection
-	message Message
+	message *Message
 	peer    bool
 }
 
 // readPump pumps messages from the websocket connection to the hub.
 func (c *connection) readPump(server *Server) {
-	defer func() {
-		server.hub.unregister <- c
-		c.ws.Close()
-	}()
+	defer c.closeConnection(server)
+
 	c.ws.SetReadLimit(maxMessageSize)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
@@ -57,32 +57,35 @@ func (c *connection) readPump(server *Server) {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
-		// Peer message wanting to connect to a peer
+		message.Name = c.name
 		if message.OpCode == PeerOpCode {
 			server.connectToPeer(message.Body)
+		} else if message.OpCode == ServerOpCode {
+			if server.ServerQuery != nil {
+				c.send <- server.ServerQuery.QueryHandler(message, c.token)
+			}
 		} else {
 			if message.OpCode == BindOpCode {
-				c.bind(message, server)
+				c.bind(&message, server)
 			} else if message.OpCode == UnBindOpCode {
-				c.unbind(message, server)
+				c.unbind(&message, server)
 			}
 			if server.Notification != nil {
-				server.Notification.PersistentHandler(message)
+				server.Notification.PersistentHandler(message, c.token)
 			}
-			if c.canWrite(message, server) {
-				server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
+			if c.canWrite(&message, server) {
+				server.hub.broadcast <- broadcastWriter{conn: c, message: &message, peer: false}
 			}
 		}
 	}
 }
 
 // bind to a channel.
-func (c *connection) bind(message Message, server *Server) {
+func (c *connection) bind(message *Message, server *Server) {
 	authStatus := true
 	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.ChannelAuthHandler(message)
+		authStatus = server.Auth.ChannelAuthHandler(*message, c.token)
 	}
-
 	if authStatus {
 		addChannel := true
 		for _, channel := range c.channels {
@@ -96,15 +99,16 @@ func (c *connection) bind(message Message, server *Server) {
 			c.channels = append(c.channels, message.ChannelName)
 		}
 	} else {
-		log.Println("what do we do now?")
+		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name)))
+		c.closeConnection(server)
 	}
 }
 
 //unbind from a channel
-func (c *connection) unbind(message Message, server *Server) {
+func (c *connection) unbind(message *Message, server *Server) {
 	authStatus := true
 	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.ChannelAuthHandler(message)
+		authStatus = server.Auth.ChannelAuthHandler(*message, c.token)
 	}
 
 	if authStatus {
@@ -116,15 +120,19 @@ func (c *connection) unbind(message Message, server *Server) {
 		}
 		server.hub.unbind <- broadcastWriter{conn: c, message: message, peer: false}
 	} else {
-		log.Println("what do we do now?")
+		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name)))
+		c.closeConnection(server)
 	}
 }
 
 //check and make sure we can write this
-func (c *connection) canWrite(message Message, server *Server) bool {
+func (c *connection) canWrite(message *Message, server *Server) bool {
+	if c.peer {
+		return true
+	}
 	authStatus := true
 	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.MessageAuthHandler(message)
+		authStatus = server.Auth.MessageAuthHandler(*message, c.token)
 	}
 	//check if this a channel the client is bound to
 	if authStatus {
@@ -136,6 +144,12 @@ func (c *connection) canWrite(message Message, server *Server) bool {
 		}
 	}
 	return authStatus
+}
+
+//closes the connection
+func (c *connection) closeConnection(server *Server) {
+	server.hub.unregister <- c
+	c.ws.Close()
 }
 
 // writePump pumps messages from the hub to the websocket connection.
@@ -155,7 +169,7 @@ func (c *connection) writePump(server *Server) {
 			}
 			authStatus := true
 			if server.Auth != nil {
-				authStatus = server.Auth.MessageAuthHandler(message)
+				authStatus = server.Auth.MessageAuthHandler(message, c.token)
 			}
 			err := c.write(websocket.TextMessage, message)
 			if err != nil && authStatus {

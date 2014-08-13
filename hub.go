@@ -65,15 +65,15 @@ func (h *hub) run() {
 
 // closes all the channels in the connection.
 func (h *hub) closeConnections(c *connection) {
-	delete(h.peers, c.peerName)
-	log.Println("closing connection: ", c.peerName)
+	delete(h.peers, c.name)
 	for _, name := range c.channels {
-		log.Println("Channel: ", name)
 		conns := h.channels[name]
 		for i, conn := range conns {
 			if c == conn {
 				h.channels[name] = append(conns[:i], conns[i+1:]...)
-				break
+				h.processUnbindChannel(name)
+			} else {
+				conn.send <- Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}
 			}
 		}
 	}
@@ -82,14 +82,14 @@ func (h *hub) closeConnections(c *connection) {
 // add a connection a channel.
 func (h *hub) addConnection(c *connection) {
 	if c.peer {
-		if h.peers[c.peerName] == nil {
-			log.Println("adding a new peer", c.peerName)
-			h.peers[c.peerName] = c
+		if h.peers[c.name] == nil {
+			log.Println("adding a new peer", c.name)
+			h.peers[c.name] = c
 			for name, _ := range h.channels {
 				h.channels[name] = append(h.channels[name], c)
 			}
 		} else {
-			log.Println("peer already bound", c.peerName)
+			log.Println("peer already bound", c.name)
 		}
 	}
 }
@@ -104,13 +104,14 @@ func (h *hub) ifConnectionExist(name string) bool {
 
 //bind to a connection to a channel
 func (h *hub) bindChannel(b broadcastWriter) {
-	log.Printf("Binding: %s to channel: %s", b.conn.peerName, b.message.ChannelName)
+	//log.Printf("Binding: %s to channel: %s", b.conn.name, b.message.ChannelName)
 	//we haven't seen this channel before and need to let the peers know
 	if !b.conn.peer {
 		if h.channels[b.message.ChannelName] == nil {
 			for _, c := range h.peers {
-				log.Printf("Binding peer: %s to channel: %s", c.peerName, b.message.ChannelName)
+				//log.Printf("Binding peer: %s to channel: %s", c.name, b.message.ChannelName)
 				h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], c)
+				c.send <- Message{ChannelName: b.message.ChannelName, OpCode: BindOpCode}
 			}
 		}
 	}
@@ -123,8 +124,18 @@ func (h *hub) unbindChannel(b broadcastWriter) {
 	for i, conn := range conns {
 		if b.conn == conn {
 			h.channels[b.message.ChannelName] = append(conns[:i], conns[i+1:]...)
+			h.processUnbindChannel(b.message.ChannelName)
 			break
 		}
+	}
+}
+
+//process an unbind on a channel
+func (h *hub) processUnbindChannel(channelName string) {
+	//delete channel if no longer in use
+	if len(h.channels[channelName]) <= len(h.peers) {
+		//log.Println("deleting channel:", channelName)
+		delete(h.channels, channelName)
 	}
 }
 
@@ -136,7 +147,7 @@ func (h *hub) broadcastMessage(b broadcastWriter) {
 		}
 		if c != b.conn {
 			select {
-			case c.send <- b.message:
+			case c.send <- *b.message:
 			default:
 				h.closeConnections(c)
 			}

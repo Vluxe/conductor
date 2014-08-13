@@ -10,20 +10,29 @@ import (
 	"net/http"
 )
 
+// This is used for authenication
 type auth interface {
-	InitalAuthHandler(r *http.Request) bool
-	ChannelAuthHandler(message Message) bool
-	MessageAuthHandler(message Message) bool
+	InitalAuthHandler(r *http.Request, token string) (bool, string)
+	ChannelAuthHandler(message Message, token string) bool
+	MessageAuthHandler(message Message, token string) bool
 }
 
+//This is used for storing messages between clients (for history and such)
 type notification interface {
-	PersistentHandler(message Message)
+	PersistentHandler(message Message, token string)
 }
 
+//This is use for message between a client and the server
+type serverQuery interface {
+	QueryHandler(message Message, token string) Message
+}
+
+//The server struct that has all the magic
 type Server struct {
 	hub          hub
 	Auth         auth
 	Notification notification
+	ServerQuery  serverQuery
 	EnablePeers  bool
 	Port         int
 	AuthToken    string
@@ -58,7 +67,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	peer := false
 	name := r.Header.Get("Peer")
-	peerToken := r.Header.Get("PeerToken")
+	token := r.Header.Get("Token")
 	if name != "" {
 		peer = true
 		if server.hub.ifConnectionExist(name) {
@@ -67,21 +76,18 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	authStatus := true
-	if peer { //do peer stuff
+	//check if the peers tokens match to make sure they are malicious clients
+	if peer {
 		testToken := HashToken(server.AuthToken)
-		if testToken != peerToken {
+		if testToken != token {
 			authStatus = false
 		}
 
-	}
-	if !peer && server.Auth != nil {
-		authStatus = server.Auth.InitalAuthHandler(r)
+	} else if server.Auth != nil {
+		authStatus, name = server.Auth.InitalAuthHandler(r, token)
 	}
 
 	if authStatus {
-		if !peer {
-			name = guid.NewGUID().String() //some random name for the clients
-		}
 		upgrader := websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -94,7 +100,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		c := &connection{send: make(chan Message, 256), ws: ws, peer: peer, peerName: name}
+		c := &connection{send: make(chan Message, 256), ws: ws, token: token, peer: peer, name: name}
 		server.hub.register <- c
 		go c.writePump(server)
 		c.readPump(server)
@@ -110,7 +116,7 @@ func (server *Server) AddPeer(peer string) {
 
 //connects to a peer server by connecting like a client, but with a special header and message
 func (server *Server) connectToPeer(peer string) {
-	client, err := CreateClient(peer, guid.NewUUID().String(), server.AuthToken)
+	client, err := CreateClient(peer, server.AuthToken, guid.NewUUID().String())
 	if err != nil {
 		log.Println(skittles.BoldRed(err))
 		return
@@ -120,18 +126,10 @@ func (server *Server) connectToPeer(peer string) {
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	message := Message{Token: server.AuthToken, Name: "", Body: selfUrl, ChannelName: "", OpCode: PeerOpCode}
+	message := Message{Body: selfUrl, ChannelName: "", OpCode: PeerOpCode}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
-	}
-	//go through and bind to all the channels we have on this server to our peer so we get the messages
-	for name, _ := range server.hub.channels {
-		message := Message{Token: server.AuthToken, Name: "", Body: "", ChannelName: name, OpCode: BindOpCode}
-		err = client.Writer(&message)
-		if err != nil {
-			log.Fatal(skittles.BoldRed(err))
-		}
 	}
 	go client.reader(server)
 }
@@ -156,6 +154,6 @@ func (client *Client) reader(server *Server) {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
-		server.hub.broadcast <- broadcastWriter{conn: nil, message: message, peer: true}
+		server.hub.broadcast <- broadcastWriter{conn: nil, message: &message, peer: true}
 	}
 }
