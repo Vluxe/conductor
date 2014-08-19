@@ -14,6 +14,7 @@ const (
 	InfoOpCode                             //messages sent between clients that aren't intend to be displayed
 	PeerOpCode                             //only used between server peers
 	ServerOpCode                           //messages intend to be between a single client and the server (not broadcast)
+	InviteOpCode
 )
 
 // Struct of message json.

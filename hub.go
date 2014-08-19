@@ -13,8 +13,11 @@ type hub struct {
 	// The connections based on channel
 	channels map[string][]*connection
 
-	//All registered connections.
+	//All registered peers.
 	peers map[string]*connection
+
+	//All registered connections that aren't peers.
+	clients map[string]*connection
 
 	// Inbound messages from the connections.
 	broadcast chan broadcastWriter
@@ -30,6 +33,9 @@ type hub struct {
 
 	// Unregister requests from connections.
 	unregister chan *connection
+
+	// invite to a channel
+	invite chan broadcastWriter
 }
 
 // create our hub.
@@ -40,8 +46,10 @@ func createHub() hub {
 		unregister: make(chan *connection),
 		bind:       make(chan broadcastWriter),
 		unbind:     make(chan broadcastWriter),
+		invite:     make(chan broadcastWriter),
 		channels:   make(map[string][]*connection),
 		peers:      make(map[string]*connection),
+		clients:    make(map[string]*connection),
 	}
 }
 
@@ -59,6 +67,8 @@ func (h *hub) run() {
 			h.bindChannel(b)
 		case b := <-h.unbind:
 			h.unbindChannel(b)
+		case b := <-h.invite:
+			h.inviteUser(b)
 		}
 	}
 }
@@ -66,6 +76,7 @@ func (h *hub) run() {
 // closes all the channels in the connection.
 func (h *hub) closeConnections(c *connection) {
 	delete(h.peers, c.name)
+	delete(h.clients, c.name)
 	for _, name := range c.channels {
 		conns := h.channels[name]
 		for i, conn := range conns {
@@ -91,6 +102,8 @@ func (h *hub) addConnection(c *connection) {
 		} else {
 			log.Println("peer already bound", c.name)
 		}
+	} else if h.clients[c.name] == nil {
+		h.clients[c.name] = c
 	}
 }
 
@@ -136,6 +149,18 @@ func (h *hub) processUnbindChannel(channelName string) {
 	if len(h.channels[channelName]) <= len(h.peers) {
 		//log.Println("deleting channel:", channelName)
 		delete(h.channels, channelName)
+	}
+}
+
+//invite a user to a channel
+func (h *hub) inviteUser(b broadcastWriter) {
+	conn := h.clients[b.message.Body]
+	if conn != nil {
+		conn.send <- *b.message
+	}
+	//send the invite to the peers in case the user is on another server
+	for _, c := range h.peers {
+		c.send <- *b.message
 	}
 }
 
