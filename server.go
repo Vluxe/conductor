@@ -66,8 +66,17 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	peer := false
-	name := r.Header.Get("Peer")
-	token := r.Header.Get("Token")
+	peerKey := "Peer"
+	tokenKey := "Token"
+	name := r.Header.Get(peerKey)
+	token := r.Header.Get(tokenKey)
+	params := r.URL.Query()
+	if len(params[peerKey]) > 0 {
+		name = params[peerKey][0]
+	}
+	if len(params[tokenKey]) > 0 {
+		token = params[tokenKey][0]
+	}
 	if name != "" {
 		peer = true
 		if server.hub.ifConnectionExist(name) {
