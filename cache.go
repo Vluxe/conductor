@@ -6,23 +6,25 @@ type Cache struct {
 }
 
 func createCache(server *Server) Cache {
-	return cacheHub{c: make(map[string]string), s: server}
+	return Cache{c: make(map[string]string), s: server}
 }
 
 func (cache *Cache) Set(key, value string) error {
 	cache.c[key] = value
 	// do some broadcast action.
+	return nil
 }
 
 func (cache *Cache) Get(key string) (string, error) {
 	val := cache.c[key]
-	if val != nil {
-		return val
+	if val != "" {
+		return val, nil
 	}
 	// do some broadcast action.
+	return val, nil
 }
 
-func (cache *Cache) Evict(key string) error {
+func (cache *Cache) Evict(key string) {
 	delete(cache.c, key)
 	// broadcast to peers to delete key.
 }
