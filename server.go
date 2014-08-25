@@ -135,7 +135,7 @@ func (server *Server) connectToPeer(peer string) {
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	message := Message{Body: selfUrl, ChannelName: "", OpCode: PeerOpCode}
+	message := Message{Body: selfUrl, ChannelName: "", OpCode: PeerBindOpCode}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))

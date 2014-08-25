@@ -58,7 +58,7 @@ func (c *connection) readPump(server *Server) {
 			break
 		}
 		message.Name = c.name
-		if message.OpCode == PeerOpCode {
+		if message.OpCode == PeerBindOpCode && c.peer {
 			server.connectToPeer(message.Body)
 		} else if message.OpCode == ServerOpCode {
 			if server.ServerQuery != nil {
