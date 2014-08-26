@@ -64,13 +64,6 @@ func (c *connection) readPump(server *Server) {
 			if server.ServerQuery != nil {
 				c.send <- server.ServerQuery.QueryHandler(message, c.token)
 			}
-		} else if message.OpCode == PeerOpCode && c.peer {
-			if message.Name == "Get" {
-				//cache.Get(message.Body)
-				// c.send <- value
-			} else if message.Name == "Set" {
-				//cache.Set(message.Body)
-			}
 		} else if message.OpCode == InviteOpCode {
 			if c.canWrite(&message, server) {
 				server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
