@@ -24,7 +24,7 @@ func CreateClient(serverUrl, authToken, peerName string) (Client, error) {
 	header.Add("Origin", u.String())
 	if peerName != "" {
 		header.Add("Peer", peerName)
-		header.Add("Token", HashToken(authToken))
+		header.Add("Token", hashToken(authToken))
 	} else {
 		header.Add("Token", authToken)
 	}

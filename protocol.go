@@ -28,7 +28,7 @@ type Message struct {
 }
 
 // Creates a sha1 of an authToken.
-func HashToken(token string) string {
+func hashToken(token string) string {
 	data := []byte(token)
 	return fmt.Sprintf("%x", sha1.Sum(data))
 }

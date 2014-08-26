@@ -87,7 +87,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	authStatus := true
 	//check if the peers tokens match to make sure they are malicious clients
 	if peer {
-		testToken := HashToken(server.AuthToken)
+		testToken := hashToken(server.AuthToken)
 		if testToken != token {
 			authStatus = false
 		}
