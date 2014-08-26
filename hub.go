@@ -69,6 +69,8 @@ func (h *hub) run() {
 			h.unbindChannel(b)
 		case b := <-h.invite:
 			h.inviteUser(b)
+		case b := <-h.peerbroadcast:
+			h.broadcastPeerMessage(b)
 		}
 	}
 }
@@ -161,6 +163,17 @@ func (h *hub) inviteUser(b broadcastWriter) {
 	//send the invite to the peers in case the user is on another server
 	for _, c := range h.peers {
 		c.send <- *b.message
+	}
+}
+
+//broadcast a message to the peers
+func (h *hub) broadcastPeerMessage(b broadcastWriter) {
+	for _, c := range h.peers {
+		if c != b.conn {
+			select {
+			case c.send <- *b.message:
+			}
+		}
 	}
 }
 
