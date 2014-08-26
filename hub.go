@@ -34,22 +34,26 @@ type hub struct {
 	// Unregister requests from connections.
 	unregister chan *connection
 
-	// invite to a channel
+	// invite to a channel.
 	invite chan broadcastWriter
+
+	// send message to just peers.
+	peerbroadcast chan broadcastWriter
 }
 
 // create our hub.
 func createHub() hub {
 	return hub{
-		broadcast:  make(chan broadcastWriter),
-		register:   make(chan *connection),
-		unregister: make(chan *connection),
-		bind:       make(chan broadcastWriter),
-		unbind:     make(chan broadcastWriter),
-		invite:     make(chan broadcastWriter),
-		channels:   make(map[string][]*connection),
-		peers:      make(map[string]*connection),
-		clients:    make(map[string]*connection),
+		broadcast:     make(chan broadcastWriter),
+		register:      make(chan *connection),
+		unregister:    make(chan *connection),
+		bind:          make(chan broadcastWriter),
+		unbind:        make(chan broadcastWriter),
+		invite:        make(chan broadcastWriter),
+		peerbroadcast: make(chan broadcastWriter),
+		channels:      make(map[string][]*connection),
+		peers:         make(map[string]*connection),
+		clients:       make(map[string]*connection),
 	}
 }
 
