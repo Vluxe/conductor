@@ -2,6 +2,7 @@ package conductor
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
@@ -34,8 +35,11 @@ func CreateClient(serverUrl, authToken, peerName string) (Client, error) {
 		return Client{}, err
 	}
 	webConn, _, err := websocket.NewClient(conn, u, header, bufferSize, bufferSize)
-
-	return Client{conn: webConn}, err
+	if err != nil {
+		fmt.Println("boo")
+		return Client{}, err
+	}
+	return Client{conn: webConn}, nil
 }
 
 func (client *Client) Reader() (Message, error) {

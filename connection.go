@@ -57,6 +57,7 @@ func (c *connection) readPump(server *Server) {
 			log.Println(skittles.BoldRed(err))
 			break
 		}
+
 		message.Name = c.name
 		if message.OpCode == PeerBindOpCode && c.peer {
 			server.connectToPeer(message.Body)
@@ -74,7 +75,7 @@ func (c *connection) readPump(server *Server) {
 			} else if message.OpCode == UnBindOpCode {
 				c.unbind(&message, server)
 			}
-			if server.Notification != nil {
+			if server.Notification != nil && message.OpCode == WriteOpCode {
 				server.Notification.PersistentHandler(message, c.token)
 			}
 			if c.canWrite(&message, server) {

@@ -18,7 +18,7 @@ type color func(interface{}) string
 
 func main() {
 	flag.Parse()
-	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "someAuthToken", "")
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "blah", "")
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
@@ -36,14 +36,8 @@ func writer(client *conductor.Client) {
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
-	//Do a server query for no reason other than testing
-	message := conductor.Message{Name: name, Body: "roster", ChannelName: "", OpCode: conductor.ServerOpCode}
-	err = client.Writer(&message)
-	if err != nil {
-		log.Fatal(skittles.BoldRed(err))
-	}
 
-	message = conductor.Message{Name: name, Body: "joined the chat\n", ChannelName: "hello", OpCode: conductor.BindOpCode}
+	message := conductor.Message{Name: name, Body: "joined the chat\n", ChannelName: "hello", OpCode: conductor.BindOpCode}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
@@ -80,7 +74,7 @@ func reader(client *conductor.Client) {
 		if message.OpCode == conductor.UnBindOpCode {
 			fmt.Printf(el("%s: left the chat\n"), message.Name)
 		} else {
-			fmt.Printf(el("%s: %s"), message.Name, message.Body)
+			fmt.Printf(el("%s: %s\n"), message.Name, message.Body)
 		}
 	}
 }
