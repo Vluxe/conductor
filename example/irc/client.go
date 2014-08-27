@@ -18,7 +18,7 @@ type color func(interface{}) string
 
 func main() {
 	flag.Parse()
-	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "blah", "")
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "be8c62c7ff1f380cb64a2c3309f85932", "")
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
@@ -30,14 +30,20 @@ func writer(client *conductor.Client) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Println(skittles.BoldGreen("Connected!"))
-	fmt.Printf("Enter your name: ")
-	n, err := reader.ReadString('\n')
-	name := string(n)[:len(n)-1]
+
+	message := conductor.Message{Name: "", Body: "joined the chat\n", ChannelName: "hello", OpCode: conductor.BindOpCode}
+	err := client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
 
-	message := conductor.Message{Name: name, Body: "joined the chat\n", ChannelName: "hello", OpCode: conductor.BindOpCode}
+	message = conductor.Message{Name: "", Body: "history", ChannelName: "hello", OpCode: conductor.ServerOpCode}
+	err = client.Writer(&message)
+	if err != nil {
+		log.Fatal(skittles.BoldRed(err))
+	}
+
+	message = conductor.Message{Name: "", Body: "channels", ChannelName: "hello", OpCode: conductor.ServerOpCode}
 	err = client.Writer(&message)
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
@@ -49,9 +55,7 @@ func writer(client *conductor.Client) {
 			log.Fatal(skittles.BoldRed(err))
 		}
 
-		opcode := conductor.WriteOpCode
-
-		message := conductor.Message{Name: name, Body: string(line), ChannelName: "hello", OpCode: opcode}
+		message := conductor.Message{Name: "", Body: string(line), ChannelName: "hello", OpCode: conductor.WriteOpCode}
 		err = client.Writer(&message)
 		if err != nil {
 			log.Fatal(skittles.BoldRed(err))
