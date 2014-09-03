@@ -34,6 +34,13 @@ func main() {
 func (s Storage) PersistentHandler(message conductor.Message, token string) {
 	fmt.Println("store some stuff: ", message.Body)
 }
+func (s Storage) BindHandler(message conductor.Message, token string) {
+	fmt.Printf("%s bound to: %s\n", message.Name, message.ChannelName)
+
+}
+func (s Storage) UnBindHandler(message conductor.Message, token string) {
+	fmt.Printf("%s unbound from: %s\n", message.Name, message.ChannelName)
+}
 
 func (q Query) QueryHandler(message conductor.Message, token string) conductor.Message {
 	fmt.Println("got a query: ", message.Body)

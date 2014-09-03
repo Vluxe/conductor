@@ -72,8 +72,14 @@ func (c *connection) readPump(server *Server) {
 		} else {
 			if message.OpCode == BindOpCode {
 				c.bind(&message, server)
+				if server.Notification != nil {
+					server.Notification.BindHandler(message, c.token)
+				}
 			} else if message.OpCode == UnBindOpCode {
 				c.unbind(&message, server)
+				if server.Notification != nil {
+					server.Notification.UnBindHandler(message, c.token)
+				}
 			}
 			if server.Notification != nil && message.OpCode == WriteOpCode {
 				server.Notification.PersistentHandler(message, c.token)
@@ -153,6 +159,12 @@ func (c *connection) canWrite(message *Message, server *Server) bool {
 
 //closes the connection
 func (c *connection) closeConnection(server *Server) {
+	//unbind from all the channels if client is disconnected
+	if server.Notification != nil {
+		for _, name := range c.channels {
+			server.Notification.UnBindHandler(Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}, c.token)
+		}
+	}
 	server.hub.unregister <- c
 	c.ws.Close()
 }

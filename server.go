@@ -19,7 +19,9 @@ type auth interface {
 
 //This is used for storing messages between clients (for history and such)
 type notification interface {
-	PersistentHandler(message Message, token string)
+	PersistentHandler(message Message, token string) //Got a write message
+	BindHandler(message Message, token string)       //Got a bind message
+	UnBindHandler(message Message, token string)     //Got an unbind message
 }
 
 //This is use for message between a client and the server
