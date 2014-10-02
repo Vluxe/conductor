@@ -186,8 +186,6 @@ func (h *hub) broadcastMessage(b broadcastWriter) {
 			continue
 		}
 		if c != b.conn {
-			log.Println("user: ", c.name)
-			log.Println("message: ", *b.message)
 			select {
 			case c.send <- *b.message:
 			default:
