@@ -85,7 +85,6 @@ func (h *hub) closeConnections(c *connection) {
 	delete(h.clients, c.name)
 	for _, name := range c.channels {
 		conns := h.channels[name]
-		log.Println("before conns:", conns)
 		for i, conn := range conns {
 			if c == conn {
 				h.channels[name] = append(conns[:i], conns[i+1:]...)
@@ -94,7 +93,6 @@ func (h *hub) closeConnections(c *connection) {
 				conn.send <- Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}
 			}
 		}
-		log.Println(" after conns:", conns)
 	}
 }
 
@@ -111,7 +109,6 @@ func (h *hub) addConnection(c *connection) {
 			log.Println("peer already bound", c.name)
 		}
 	} else if h.clients[c.name] == nil {
-		log.Println("add client:", c.name)
 		h.clients[c.name] = c
 	}
 }
@@ -126,7 +123,6 @@ func (h *hub) ifConnectionExist(name string) bool {
 
 //bind to a connection to a channel
 func (h *hub) bindChannel(b broadcastWriter) {
-	log.Printf("Binding: %s to channel: %s", b.conn.name, b.message.ChannelName)
 	//we haven't seen this channel before and need to let the peers know
 	if !b.conn.peer {
 		if h.channels[b.message.ChannelName] == nil {
@@ -144,11 +140,9 @@ func (h *hub) bindChannel(b broadcastWriter) {
 func (h *hub) unbindChannel(b broadcastWriter) {
 	conns := h.channels[b.message.ChannelName]
 	for i, conn := range conns {
-		log.Println("before conns:", conns)
 		if b.conn == conn {
 			h.channels[b.message.ChannelName] = append(conns[:i], conns[i+1:]...)
 			h.processUnbindChannel(b.message.ChannelName)
-			log.Println("after conns:", conns)
 			break
 		}
 	}
@@ -158,7 +152,6 @@ func (h *hub) unbindChannel(b broadcastWriter) {
 func (h *hub) processUnbindChannel(channelName string) {
 	//delete channel if no longer in use
 	if len(h.channels[channelName]) <= len(h.peers) {
-		log.Println("deleting channel:", channelName)
 		delete(h.channels, channelName)
 	}
 }
@@ -193,6 +186,8 @@ func (h *hub) broadcastMessage(b broadcastWriter) {
 			continue
 		}
 		if c != b.conn {
+			log.Println("user: ", c.name)
+			log.Println("message: ", *b.message)
 			select {
 			case c.send <- *b.message:
 			default:

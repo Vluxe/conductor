@@ -85,7 +85,6 @@ func (c *connection) readPump(server *Server) {
 				server.Notification.PersistentHandler(message, c.token)
 			}
 			if c.canWrite(&message, server) {
-				log.Println("messages.")
 				server.hub.broadcast <- broadcastWriter{conn: c, message: &message, peer: false}
 			}
 		}
