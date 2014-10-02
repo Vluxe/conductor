@@ -66,7 +66,9 @@ func (c *connection) readPump(server *Server) {
 				c.send <- server.ServerQuery.QueryHandler(message, c.token)
 			}
 		} else if message.OpCode == InviteOpCode {
+			log.Println("invite opcode")
 			if c.canWrite(&message, server) {
+				log.Println("invite to hub.")
 				server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
 			}
 		} else {
