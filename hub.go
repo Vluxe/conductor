@@ -123,7 +123,6 @@ func (h *hub) ifConnectionExist(name string) bool {
 
 //bind to a connection to a channel
 func (h *hub) bindChannel(b broadcastWriter) {
-	//log.Printf("Binding: %s to channel: %s", b.conn.name, b.message.ChannelName)
 	//we haven't seen this channel before and need to let the peers know
 	if !b.conn.peer {
 		if h.channels[b.message.ChannelName] == nil {
@@ -153,7 +152,6 @@ func (h *hub) unbindChannel(b broadcastWriter) {
 func (h *hub) processUnbindChannel(channelName string) {
 	//delete channel if no longer in use
 	if len(h.channels[channelName]) <= len(h.peers) {
-		//log.Println("deleting channel:", channelName)
 		delete(h.channels, channelName)
 	}
 }
