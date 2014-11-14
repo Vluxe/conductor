@@ -159,9 +159,7 @@ func (h *hub) processUnbindChannel(channelName string) {
 //invite a user to a channel
 func (h *hub) inviteUser(b broadcastWriter) {
 	conn := h.clients[b.message.Body]
-	log.Println("conn is: ", conn)
 	if conn != nil {
-		log.Println("sending invite to conn.")
 		conn.send <- *b.message
 	}
 	//send the invite to the peers in case the user is on another server

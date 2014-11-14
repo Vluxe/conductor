@@ -66,7 +66,6 @@ func (c *connection) readPump(server *Server) {
 				c.send <- server.ServerQuery.QueryHandler(message, c.token)
 			}
 		} else if message.OpCode == InviteOpCode {
-			log.Println("Invite Op Code")
 			server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
 		} else {
 			if message.OpCode == BindOpCode {
