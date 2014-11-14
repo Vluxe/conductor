@@ -67,10 +67,7 @@ func (c *connection) readPump(server *Server) {
 			}
 		} else if message.OpCode == InviteOpCode {
 			log.Println("Invite Op Code")
-			if c.canWrite(&message, server) {
-				log.Println("Yeah we can write. Shooting out to the hub.")
-				server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
-			}
+			server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
 		} else {
 			if message.OpCode == BindOpCode {
 				c.bind(&message, server)
