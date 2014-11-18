@@ -1,6 +1,8 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Copyright 2013/2014 The Gorilla WebSocket & Conductor Authors. All rights reserved.
 // some code borrowed from example chat program of
 // https://github.com/gorilla/websocket
+// Gorilla under BSD-style. See it's LICENSE file for more info.
+// Conductor under Apache v2. License can be found in the LICENSE file.
 package conductor
 
 import (

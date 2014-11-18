@@ -1,6 +1,8 @@
-// Copyright 2013 The Gorilla WebSocket Authors. All rights reserved.
+// Copyright 2013/2014 The Gorilla WebSocket & Conductor Authors. All rights reserved.
 // some code borrowed from example chat program of
 // https://github.com/gorilla/websocket
+// Gorilla under BSD-style. See it's LICENSE file for more info.
+// Conductor under Apache v2. License can be found in the LICENSE file.
 package conductor
 
 import (
@@ -36,20 +38,27 @@ type connection struct {
 	token    string
 }
 
-// broadcasting message
+// broadcastWriter is type for wrapping a connection,
+// message and peer setting into something concrete to
+// send to the hub.
 type broadcastWriter struct {
 	conn    *connection
 	message *Message
 	peer    bool
 }
 
-// readPump pumps messages from the websocket connection to the hub.
+// readPump sends messages from the connection to the hub.
+// param: server - Takes a server struct to run it's callbacks.
 func (c *connection) readPump(server *Server) {
 	defer c.closeConnection(server)
 
+	// Setup our connection's websocket ping/pong handlers from our const values.
 	c.ws.SetReadLimit(maxMessageSize)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
+	// This is our blocking loop. Hence us starting it in it's own goroutine.
+	// It processes all the read messages for this connection.
 	for {
 		var message Message
 		err := c.ws.ReadJSON(&message)
@@ -59,33 +68,74 @@ func (c *connection) readPump(server *Server) {
 		}
 
 		message.Name = c.name
-		if message.OpCode == PeerBindOpCode && c.peer {
-			server.connectToPeer(message.Body)
-		} else if message.OpCode == ServerOpCode {
-			if server.ServerQuery != nil {
-				c.send <- server.ServerQuery.QueryHandler(message, c.token)
-			}
-		} else if message.OpCode == InviteOpCode {
-			server.hub.invite <- broadcastWriter{conn: c, message: &message, peer: false}
-		} else {
-			if message.OpCode == BindOpCode {
-				c.bind(&message, server)
-				if server.Notification != nil {
-					server.Notification.BindHandler(message, c.token)
-				}
-			} else if message.OpCode == UnBindOpCode {
-				c.unbind(&message, server)
-				if server.Notification != nil {
-					server.Notification.UnBindHandler(message, c.token)
-				}
-			}
-			if server.Notification != nil && message.OpCode == WriteOpCode {
-				server.Notification.PersistentHandler(message, c.token)
-			}
-			if c.canWrite(&message, server) {
-				server.hub.broadcast <- broadcastWriter{conn: c, message: &message, peer: false}
-			}
+		switch message.OpCode {
+		case PeerBindOpCode: // message for connecting peers.
+			c.peerBindOp(server, &message)
+		case ServerOpCode: // message from a "client" to run our serverQuery callback.
+			c.serverOp(server, &message)
+		case InviteOpCode: // message when an invitation to join a channel is sent.
+			c.inviteOp(server, &message)
+		case BindOpCode: // message to bind to a channel.
+			c.bindOp(server, &message)
+		case UnBindOpCode: // message to unbind to channel.
+			c.unbindOp(server, &message)
+		case WriteOpCode: // message to writes to channel.
+			c.writeOp(server, &message)
+		default: // broadcast message.
+			c.broadcastMessage(server, &message)
 		}
+	}
+}
+
+// peerBindOp when a connection needs to connect to a peer.
+func (c *connection) peerBindOp(server *Server, message *Message) {
+	if c.peer {
+		server.connectToPeer(message.Body)
+	}
+}
+
+// serverOp when a connection needs to execute query handler callback.
+func (c *connection) serverOp(server *Server, message *Message) {
+	if server.ServerQuery != nil {
+		c.send <- server.ServerQuery.QueryHandler(*message, c.token)
+	}
+}
+
+// inviteOp when a connection needs to send an invitation out.
+func (c *connection) inviteOp(server *Server, message *Message) {
+	server.hub.invite <- broadcastWriter{conn: c, message: message, peer: false}
+}
+
+// bindOp when a connection needs to bind to a channel.
+func (c *connection) bindOp(server *Server, message *Message) {
+	c.bind(message, server)
+	if server.Notification != nil {
+		server.Notification.BindHandler(*message, c.token)
+	}
+	c.broadcastMessage(server, message)
+}
+
+// unbindOp when a connection needs to unbind from a channel.
+func (c *connection) unbindOp(server *Server, message *Message) {
+	c.unbind(message, server)
+	if server.Notification != nil {
+		server.Notification.UnBindHandler(*message, c.token)
+	}
+	c.broadcastMessage(server, message)
+}
+
+// writeOp when a connection needs to write to a channel.
+func (c *connection) writeOp(server *Server, message *Message) {
+	if server.Notification != nil {
+		server.Notification.PersistentHandler(*message, c.token)
+	}
+	c.broadcastMessage(server, message)
+}
+
+// broadcastMessage when a connection needs to send a message out to the hub.
+func (c *connection) broadcastMessage(server *Server, message *Message) {
+	if c.canWrite(message, server) {
+		server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
 	}
 }
 
