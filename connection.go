@@ -3,6 +3,7 @@
 // https://github.com/gorilla/websocket
 // Gorilla under BSD-style. See it's LICENSE file for more info.
 // Conductor under Apache v2. License can be found in the LICENSE file.
+
 package conductor
 
 import (
@@ -139,21 +140,31 @@ func (c *connection) broadcastMessage(server *Server, message *Message) {
 	}
 }
 
+// checkAuthStatus to see if the connection is allowed to send to channel/message.
+func (c *connection) checkAuthStatus(server *Server, message *Message, channel bool) bool {
+	if !c.peer && server.Auth != nil {
+		if channel {
+			return server.Auth.ChannelAuthHandler(*message, c.token)
+		} else {
+			return server.Auth.MessageAuthHandler(*message, c.token)
+		}
+	}
+	return true
+}
+
 // bind to a channel.
 func (c *connection) bind(message *Message, server *Server) {
-	authStatus := true
-	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.ChannelAuthHandler(*message, c.token)
-	}
+	authStatus := c.checkAuthStatus(server, message, true)
 	if authStatus {
 		addChannel := true
-		for _, channel := range c.channels {
+		for _, channel := range c.channels { // check to see if we are already bound to channel.
 			if channel == message.ChannelName {
 				addChannel = false
 				break
 			}
 		}
-		if addChannel {
+
+		if addChannel { // if we aren't add the channel to our connection and notify the hub.
 			server.hub.bind <- broadcastWriter{conn: c, message: message, peer: false}
 			c.channels = append(c.channels, message.ChannelName)
 		}
@@ -165,36 +176,28 @@ func (c *connection) bind(message *Message, server *Server) {
 
 //unbind from a channel
 func (c *connection) unbind(message *Message, server *Server) {
-	authStatus := true
-	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.ChannelAuthHandler(*message, c.token)
-	}
-
+	authStatus := c.checkAuthStatus(server, message, true)
 	if authStatus {
 		for i, channel := range c.channels {
 			if channel == message.ChannelName {
-				c.channels = append(c.channels[:i], c.channels[i+1:]...)
+				c.channels = append(c.channels[:i], c.channels[i+1:]...) // remove the channel.
 				break
 			}
 		}
 		server.hub.unbind <- broadcastWriter{conn: c, message: message, peer: false}
 	} else {
-		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name)))
+		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name))) // remove this at some point.
 		c.closeConnection(server)
 	}
 }
 
-//check and make sure we can write this
+// canWrite checks to make sure we can write.
 func (c *connection) canWrite(message *Message, server *Server) bool {
 	if c.peer {
 		return true
 	}
-	authStatus := true
-	if !c.peer && server.Auth != nil {
-		authStatus = server.Auth.MessageAuthHandler(*message, c.token)
-	}
-	//check if this a channel the client is bound to
-	if authStatus {
+	authStatus := c.checkAuthStatus(server, message, false)
+	if authStatus { // check if this a channel the client is bound to
 		authStatus = false
 		for _, channel := range c.channels {
 			if channel == message.ChannelName {
@@ -205,7 +208,7 @@ func (c *connection) canWrite(message *Message, server *Server) bool {
 	return authStatus
 }
 
-//closes the connection
+//closeConnection closes the connection
 func (c *connection) closeConnection(server *Server) {
 	//unbind from all the channels if client is disconnected
 	if server.Notification != nil {
@@ -217,7 +220,7 @@ func (c *connection) closeConnection(server *Server) {
 	c.ws.Close()
 }
 
-// writePump pumps messages from the hub to the websocket connection.
+// writePump sends messages from the hub to the websocket connection.
 func (c *connection) writePump(server *Server) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
@@ -225,17 +228,14 @@ func (c *connection) writePump(server *Server) {
 		c.ws.Close()
 	}()
 
-	for {
+	for { // blocking loop with select to wait for stimulation.
 		select {
 		case message, ok := <-c.send:
 			if !ok {
 				c.write(websocket.CloseMessage, Message{})
 				return
 			}
-			authStatus := true
-			if server.Auth != nil {
-				authStatus = server.Auth.MessageAuthHandler(message, c.token)
-			}
+			authStatus := c.checkAuthStatus(server, &message, false)
 			err := c.write(websocket.TextMessage, message)
 			if err != nil && authStatus {
 				return

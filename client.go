@@ -1,5 +1,6 @@
 // Copyright 2014 The Conductor Authors. All rights reserved.
 // Conductor under Apache v2. License can be found in the LICENSE file.
+
 package conductor
 
 import (

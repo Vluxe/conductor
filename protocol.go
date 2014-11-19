@@ -1,5 +1,6 @@
 // Copyright 2014 The Conductor Authors. All rights reserved.
 // Conductor under Apache v2. License can be found in the LICENSE file.
+
 package conductor
 
 import (
@@ -18,7 +19,7 @@ const (
 	InviteOpCode   = 8 // invite between clients to listen on a channel.
 )
 
-// Struct of message json.
+// Message is the struct of a JSON message within conductor.
 type Message struct {
 	Name        string      `json:"name"`
 	Body        string      `json:"body"`
@@ -27,7 +28,7 @@ type Message struct {
 	Additional  interface{} `json:"additional"`
 }
 
-// Creates a sha1 of an authToken.
+// hashToken creates a sha1 of an authToken.
 func hashToken(token string) string {
 	data := []byte(token)
 	return fmt.Sprintf("%x", sha1.Sum(data))

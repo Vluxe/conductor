@@ -3,6 +3,7 @@
 // https://github.com/gorilla/websocket
 // Gorilla under BSD-style. See it's LICENSE file for more info.
 // Conductor under Apache v2. License can be found in the LICENSE file.
+
 package conductor
 
 import (
@@ -43,7 +44,7 @@ type hub struct {
 	peerbroadcast chan broadcastWriter
 }
 
-// create our hub.
+//  createHub creates our hub.
 func createHub() hub {
 	return hub{
 		broadcast:     make(chan broadcastWriter),
@@ -59,9 +60,9 @@ func createHub() hub {
 	}
 }
 
-// runloop that controls broadcasting messages to other peers.
+// run is the runloop that controls all the messages sent within conductor.
 func (h *hub) run() {
-	for {
+	for { // blocking loop that waits for stimulation
 		select {
 		case c := <-h.register:
 			h.addConnection(c)
@@ -89,7 +90,7 @@ func (h *hub) closeConnections(c *connection) {
 		conns := h.channels[name]
 		for i, conn := range conns {
 			if c == conn {
-				h.channels[name] = append(conns[:i], conns[i+1:]...)
+				h.channels[name] = append(conns[:i], conns[i+1:]...) // remove connection from channel.
 				h.processUnbindChannel(name)
 			} else {
 				conn.send <- Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}
@@ -102,13 +103,13 @@ func (h *hub) closeConnections(c *connection) {
 func (h *hub) addConnection(c *connection) {
 	if c.peer {
 		if h.peers[c.name] == nil {
-			log.Println("adding a new peer", c.name)
+			log.Println("adding a new peer", c.name) // remove log at some point.
 			h.peers[c.name] = c
 			for name, _ := range h.channels {
 				h.channels[name] = append(h.channels[name], c)
 			}
 		} else {
-			log.Println("peer already bound", c.name)
+			log.Println("peer already bound", c.name) // remove log at some point.
 		}
 	} else if h.clients[c.name] == nil {
 		h.clients[c.name] = c
@@ -129,7 +130,6 @@ func (h *hub) bindChannel(b broadcastWriter) {
 	if !b.conn.peer {
 		if h.channels[b.message.ChannelName] == nil {
 			for _, c := range h.peers {
-				//log.Printf("Binding peer: %s to channel: %s", c.name, b.message.ChannelName)
 				h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], c)
 				c.send <- Message{ChannelName: b.message.ChannelName, OpCode: BindOpCode}
 			}

@@ -1,5 +1,11 @@
 // Copyright 2014 The Conductor Authors. All rights reserved.
 // Conductor under Apache v2. License can be found in the LICENSE file.
+
+// Package conductor implements the core server piece of the conductor protocol/system.
+//
+// This is a work in progress. Conductor is a scalable messaging server written using popular open source tech,
+// namely WebSockets and JSON encoding. It aims to be an easy and scalable way to handling realtime connections
+// for tens of thousands of clients. See the README for more information.
 package conductor
 
 import (
