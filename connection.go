@@ -104,6 +104,9 @@ func (c *connection) serverOp(server *Server, message *Message) {
 
 // inviteOp when a connection needs to send an invitation out.
 func (c *connection) inviteOp(server *Server, message *Message) {
+	if server.Notification != nil {
+		server.Notification.InviteHandler(*message, c.token)
+	}
 	server.hub.invite <- broadcastWriter{conn: c, message: message, peer: false}
 }
 

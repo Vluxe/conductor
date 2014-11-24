@@ -30,6 +30,7 @@ type notification interface {
 	PersistentHandler(message Message, token string) //Got a write message
 	BindHandler(message Message, token string)       //Got a bind message
 	UnBindHandler(message Message, token string)     //Got an unbind message
+	InviteHandler(message Message, token string)     //Got an invite message
 }
 
 //This is use for message between a client and the server
