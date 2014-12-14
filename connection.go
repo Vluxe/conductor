@@ -228,7 +228,7 @@ func (c *connection) writePump(server *Server) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.ws.Close()
+		c.closeConnection(server)
 	}()
 
 	for { // blocking loop with select to wait for stimulation.
