@@ -20,6 +20,11 @@ const (
 )
 
 // Message is the struct of a JSON message within conductor.
+// Name is simple string useful for describing this message.
+// Body is generally used for the actual message text you want to process.
+// ChannelName is the channel this message is being broadcasted on.
+// OpCode is one of the protocol opcodes. See the consts for the docs on those.
+// Additional is field for an additional data that needs to sent along.
 type Message struct {
 	Name        string      `json:"name"`
 	Body        string      `json:"body"`

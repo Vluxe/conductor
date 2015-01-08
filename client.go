@@ -12,18 +12,14 @@ import (
 	"net/url"
 )
 
-// A Client is basic websocket client.
-// It should be created with the CreateClient function to init
-// underlining websocket connection.
+// A Client is basic websocket connection.
 type Client struct {
 	conn *websocket.Conn
 }
 
-// CreateClient creates a Client struct and inits the underlining websocket connection.
-// param: ServerUrl - URL of conductor (websocket) server.
-// param: authToken - Authentication token of conductor (websocket) server.
-// param: peerName 	- Name of conductor peer you are connecting to. Empty string if not a peer.
-// return: init'ed Client struct if successful, error if failure.
+// CreateClient allocates and returns a new Client connection.
+// ServerUrl is the server url to connect to. authToken is
+// your authentication token. peerName if you are connecting to a peer. Normally just a blank string.
 func CreateClient(serverUrl, authToken, peerName string) (Client, error) {
 	u, err := url.Parse(serverUrl)
 	if err != nil {
@@ -54,17 +50,14 @@ func CreateClient(serverUrl, authToken, peerName string) (Client, error) {
 	return Client{conn: webConn}, nil
 }
 
-// Reads a message for Client. Usually used in a loop.
-// returns: Message struct or error.
+// Reader reads a nessage from the client connection. Usually used in a loop.
 func (client *Client) Reader() (Message, error) {
 	var message Message
 	err := client.conn.ReadJSON(&message)
 	return message, err
 }
 
-// Writes a message to server from Client connection.
-// param: message - A conductor Message struct.
-// return: error if failure.
+// Writer writes a message on the client connection.
 func (client *Client) Writer(message *Message) error {
 	buffer, err := json.Marshal(message)
 	client.conn.WriteMessage(websocket.TextMessage, buffer)

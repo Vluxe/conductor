@@ -8,10 +8,7 @@ package conductor
 
 import (
 	"encoding/json"
-	"fmt"
-	"github.com/acmacalister/skittles"
 	"github.com/gorilla/websocket"
-	"log"
 	"time"
 )
 
@@ -49,7 +46,6 @@ type broadcastWriter struct {
 }
 
 // readPump sends messages from the connection to the hub.
-// param: server - Takes a server struct to run it's callbacks.
 func (c *connection) readPump(server *Server) {
 	defer c.closeConnection(server)
 
@@ -64,7 +60,6 @@ func (c *connection) readPump(server *Server) {
 		var message Message
 		err := c.ws.ReadJSON(&message)
 		if err != nil {
-			log.Println(skittles.BoldRed(err))
 			break
 		}
 
@@ -172,12 +167,11 @@ func (c *connection) bind(message *Message, server *Server) {
 			c.channels = append(c.channels, message.ChannelName)
 		}
 	} else {
-		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name)))
 		c.closeConnection(server)
 	}
 }
 
-//unbind from a channel
+// unbind from a channel.
 func (c *connection) unbind(message *Message, server *Server) {
 	authStatus := c.checkAuthStatus(server, message, true)
 	if authStatus {
@@ -189,7 +183,6 @@ func (c *connection) unbind(message *Message, server *Server) {
 		}
 		server.hub.unbind <- broadcastWriter{conn: c, message: message, peer: false}
 	} else {
-		log.Println(skittles.BoldRed(fmt.Sprintf("%s: was unable to connect to the channel", c.name))) // remove this at some point.
 		c.closeConnection(server)
 	}
 }
@@ -211,7 +204,7 @@ func (c *connection) canWrite(message *Message, server *Server) bool {
 	return authStatus
 }
 
-//closeConnection closes the connection
+// closeConnection closes the connection.
 func (c *connection) closeConnection(server *Server) {
 	//unbind from all the channels if client is disconnected
 	if server.Notification != nil {

@@ -18,7 +18,7 @@ type color func(interface{}) string
 
 func main() {
 	flag.Parse()
-	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "be8c62c7ff1f380cb64a2c3309f85932", "")
+	client, err := conductor.CreateClient(fmt.Sprintf("ws://localhost:%d", *addr), "client", "")
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}

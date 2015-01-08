@@ -1,55 +1,69 @@
 // Copyright 2014 The Conductor Authors. All rights reserved.
 // Conductor under Apache v2. License can be found in the LICENSE file.
 
-// Package conductor implements the core server piece of the conductor protocol/system.
+// Package conductor implements the core server/client pieces of the conductor protocol/system.
 //
 // This is a work in progress. Conductor is a scalable messaging server written using popular open source tech,
-// namely WebSockets and JSON encoding. It aims to be an easy and scalable way to handling realtime connections
+// namely WebSockets and JSON encoding. It aims to be an easy and scalable way to handling real-time connections
 // for tens of thousands of clients. See the README for more information.
 package conductor
 
 import (
 	"fmt"
-	"github.com/acmacalister/skittles"
 	"github.com/daltoniam/goguid"
 	"github.com/gorilla/websocket"
-	"log"
 	"net"
 	"net/http"
 )
 
-// This is used for authenication
-type auth interface {
+// Implement the Auth interface to satisfy authentication. If unimplemented
+// Conductor will ignore authentication altogether.
+type Auth interface {
+	// InitalAuthHandler runs when a client first connects.
 	InitalAuthHandler(r *http.Request, token string) (bool, string)
+
+	// ChannelAuthHandler runs when a client tries to bind to a channel.
 	ChannelAuthHandler(message Message, token string) bool
+
+	// MessageAuthHandler runs when a client sends a message.
 	MessageAuthHandler(message Message, token string) bool
 }
 
-//This is used for storing messages between clients (for history and such)
-type notification interface {
-	PersistentHandler(message Message, token string) //Got a write message
-	BindHandler(message Message, token string)       //Got a bind message
-	UnBindHandler(message Message, token string)     //Got an unbind message
-	InviteHandler(message Message, token string)     //Got an invite message
+// Implement the Notification interface to satisfy handling notifications. This interface
+// is useful for storing and processing messages between clients (for history, apns, etc).
+type Notification interface {
+	// PersistentHandler runs on each successful message sent.
+	PersistentHandler(message Message, token string)
+
+	// BindHandler runs on each bind message sent.
+	BindHandler(message Message, token string)
+
+	// UnBindHandler runs on each unbind message sent.
+	UnBindHandler(message Message, token string)
+
+	// InviteHandler runs on each successful  invite message sent.
+	InviteHandler(message Message, token string)
 }
 
-//This is use for message between a client and the server
-type serverQuery interface {
+// // Implement the Notification interface to satisfy handling ServerQuery messages.
+// This is used for when a client needs to request something from the server e.g. (channel history, db data, client info, etc).
+type ServerQuery interface {
 	QueryHandler(message Message, token string) Message
 }
 
-//The server struct that has all the magic
+// A Server type contains all the handlers, port and authentication token
+// that make up a Conductor server.
 type Server struct {
 	hub          hub
-	Auth         auth
-	Notification notification
-	ServerQuery  serverQuery
+	Auth         Auth
+	Notification Notification
+	ServerQuery  ServerQuery
 	EnablePeers  bool
 	Port         int
 	AuthToken    string
 }
 
-//Creates a new Server struct to work with
+// CreateServer allocates and returns a new Server.
 func CreateServer(port int) Server {
 	return Server{
 		hub:  createHub(),
@@ -57,20 +71,14 @@ func CreateServer(port int) Server {
 	}
 }
 
-//Starts the server
-func (server *Server) Start() {
-	log.Println(skittles.Cyan(fmt.Sprintf("starting server on %d...", server.Port)))
-	//log.Println("uuid is:", guid.NewUUID().String())
+// Start starts the server to listen for incoming connections.
+func (server *Server) Start() error {
 	go server.hub.run()
 	http.HandleFunc("/", server.websocketHandler)
-	err := http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
-	if err != nil {
-		log.Fatal(skittles.BoldRed(err))
-	}
+	return http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
 }
 
-//Handles processing new websocket connections to the server.
-//This includes peer servers and clients and preforms any auth if implemented
+// websocketHandler handles processing new WebSocket connections to the server.
 func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", 405)
@@ -91,7 +99,6 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if name != "" {
 		peer = true
 		if server.hub.ifConnectionExist(name) {
-			log.Println("Already connected to peer:", name)
 			http.Error(w, "", http.StatusOK) //not sure if we want this or not
 		}
 	}
@@ -114,9 +121,6 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			if _, ok := err.(websocket.HandshakeError); !ok {
-				log.Println(err)
-			}
 			return
 		}
 
@@ -129,32 +133,28 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//public function to connect a server to a peer server
+// AddPeer adds a peer. peer param should be a valid URL/path that this
+// server can connect to.
 func (server *Server) AddPeer(peer string) {
 	server.connectToPeer(peer)
 }
 
-//connects to a peer server by connecting like a client, but with a special header and message
+// connectToPeer connects to a peer server by connecting like a client, but with a special header and message.
 func (server *Server) connectToPeer(peer string) {
 	client, err := CreateClient(peer, server.AuthToken, guid.NewUUID().String())
 	if err != nil {
-		log.Println(skittles.BoldRed(err))
 		return
 	}
-	log.Println("connecting to peer named:", peer)
 
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
 	message := Message{Body: selfUrl, ChannelName: "", OpCode: PeerBindOpCode}
-	err = client.Writer(&message)
-	if err != nil {
-		log.Fatal(skittles.BoldRed(err))
-	}
+	client.Writer(&message)
 	go client.reader(server)
 }
 
-//get our local IP
+// getIP fetches our local IP.
 func (server *Server) getIP() string {
 	ipAddrs, _ := net.InterfaceAddrs()
 	for _, ipAddr := range ipAddrs {
@@ -166,12 +166,11 @@ func (server *Server) getIP() string {
 	return ""
 }
 
-//Forwards messages from peers to own clients
+// reader forwards messages from peers onto to the hub.
 func (client *Client) reader(server *Server) {
 	for {
 		message, err := client.Reader()
 		if err != nil {
-			log.Println(skittles.BoldRed(err))
 			break
 		}
 		server.hub.broadcast <- broadcastWriter{conn: nil, message: &message, peer: true}

@@ -6,10 +6,6 @@
 
 package conductor
 
-import (
-	"log"
-)
-
 // hub maintains the set of active connections and broadcasts messages to the
 // connections.
 type hub struct {
@@ -82,7 +78,7 @@ func (h *hub) run() {
 	}
 }
 
-// closes all the channels in the connection.
+// closeConnections removes a connection from the hub.
 func (h *hub) closeConnections(c *connection) {
 	delete(h.peers, c.name)
 	delete(h.clients, c.name)
@@ -99,24 +95,21 @@ func (h *hub) closeConnections(c *connection) {
 	}
 }
 
-// add a connection a channel.
+// addConnection adds a connection to the hub.
 func (h *hub) addConnection(c *connection) {
 	if c.peer {
 		if h.peers[c.name] == nil {
-			log.Println("adding a new peer", c.name) // remove log at some point.
 			h.peers[c.name] = c
 			for name, _ := range h.channels {
 				h.channels[name] = append(h.channels[name], c)
 			}
-		} else {
-			log.Println("peer already bound", c.name) // remove log at some point.
 		}
 	} else if h.clients[c.name] == nil {
 		h.clients[c.name] = c
 	}
 }
 
-// Checks if the peer has already been added
+// ifConnectionExist checks if the peer has already been added.
 func (h *hub) ifConnectionExist(name string) bool {
 	if h.peers[name] != nil {
 		return true
@@ -124,7 +117,7 @@ func (h *hub) ifConnectionExist(name string) bool {
 	return false
 }
 
-//bind to a connection to a channel
+// bindChannel adds a connection to a channel.
 func (h *hub) bindChannel(b broadcastWriter) {
 	//we haven't seen this channel before and need to let the peers know
 	if !b.conn.peer {
@@ -138,7 +131,7 @@ func (h *hub) bindChannel(b broadcastWriter) {
 	h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], b.conn)
 }
 
-//unbind a connection from a channel
+// unbindChannel removes a connection from the channel.
 func (h *hub) unbindChannel(b broadcastWriter) {
 	conns := h.channels[b.message.ChannelName]
 	for i, conn := range conns {
@@ -150,7 +143,7 @@ func (h *hub) unbindChannel(b broadcastWriter) {
 	}
 }
 
-//process an unbind on a channel
+// processUnbindChannel handles cleaning up a channel.
 func (h *hub) processUnbindChannel(channelName string) {
 	//delete channel if no longer in use
 	if len(h.channels[channelName]) <= len(h.peers) {
@@ -158,7 +151,7 @@ func (h *hub) processUnbindChannel(channelName string) {
 	}
 }
 
-//invite a user to a channel
+// inviteUser sends an invite to another client. Will also forward to other peers.
 func (h *hub) inviteUser(b broadcastWriter) {
 	conn := h.clients[b.message.Body]
 	if conn != nil {
@@ -170,7 +163,7 @@ func (h *hub) inviteUser(b broadcastWriter) {
 	}
 }
 
-//broadcast a message to the peers
+// broadcastPeerMessage sends a message to other connected peers only.
 func (h *hub) broadcastPeerMessage(b broadcastWriter) {
 	for _, c := range h.peers {
 		if c != b.conn {
@@ -181,7 +174,7 @@ func (h *hub) broadcastPeerMessage(b broadcastWriter) {
 	}
 }
 
-// broadcast message out on channel.
+// broadcastMessage sends a message on a channel.
 func (h *hub) broadcastMessage(b broadcastWriter) {
 	for _, c := range h.channels[b.message.ChannelName] {
 		if b.peer && c.peer {
