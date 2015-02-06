@@ -27,6 +27,9 @@ type Auth interface {
 
 	// MessageAuthHandler runs when a client sends a message.
 	MessageAuthHandler(message Message, token string) bool
+
+	// MessageAuthHandler runs when checking if a client must be bound to a channel before writing to it.
+	MessagAuthBoundHandler(message Message, token string) bool
 }
 
 // Implement the Notification interface to satisfy handling notifications. This interface

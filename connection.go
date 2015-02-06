@@ -193,6 +193,15 @@ func (c *connection) canWrite(message *Message, server *Server) bool {
 		return true
 	}
 	authStatus := c.checkAuthStatus(server, message, false)
+	//check if a client should check the channels
+	if authStatus {
+		if server.Auth != nil {
+			if !server.Auth.MessagAuthBoundHandler(*message, c.token) {
+				return authStatus
+			}
+		}
+	}
+
 	if authStatus { // check if this a channel the client is bound to
 		authStatus = false
 		for _, channel := range c.channels {
