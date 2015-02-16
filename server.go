@@ -152,9 +152,14 @@ func (server *Server) connectToPeer(peer string) {
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	message := Message{Body: selfUrl, ChannelName: "", OpCode: PeerBindOpCode}
-	client.Writer(&message)
-	go client.reader(server)
+	fmt.Println("got a new peer:", selfUrl)
+	client.Write(selfUrl, "", PeerBindOpCode, nil)
+
+	//forwards messages from peers onto to the hub.
+	client.ServerBind(func(msg Message) {
+		server.hub.broadcast <- broadcastWriter{conn: nil, message: &msg, peer: true}
+	})
+	go client.ReadLoop()
 }
 
 // getIP fetches our local IP.
@@ -167,15 +172,4 @@ func (server *Server) getIP() string {
 		}
 	}
 	return ""
-}
-
-// reader forwards messages from peers onto to the hub.
-func (client *Client) reader(server *Server) {
-	for {
-		message, err := client.Reader()
-		if err != nil {
-			break
-		}
-		server.hub.broadcast <- broadcastWriter{conn: nil, message: &message, peer: true}
-	}
 }

@@ -63,3 +63,7 @@ func (a Auther) ChannelAuthHandler(message conductor.Message, token string) bool
 func (a Auther) MessageAuthHandler(message conductor.Message, token string) bool {
 	return true
 }
+
+func (a Auther) MessagAuthBoundHandler(message conductor.Message, token string) bool {
+	return true
+}
