@@ -28,7 +28,10 @@ func main() {
 	log.Println("peerUrl: ", peerUrl)
 	server.AuthToken = "FakeToken"
 	server.AddPeer(peerUrl)
-	server.Start()
+	err := server.Start()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
 
 func (s Storage) PersistentHandler(message conductor.Message, token string) {

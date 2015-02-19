@@ -77,8 +77,15 @@ func CreateServer(port int) Server {
 // Start starts the server to listen for incoming connections.
 func (server *Server) Start() error {
 	go server.hub.run()
+
 	http.HandleFunc("/", server.websocketHandler)
-	return http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
+
+	err := http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
+	if err != nil {
+		return err
+	} else {
+		return nil
+	}
 }
 
 // websocketHandler handles processing new WebSocket connections to the server.
