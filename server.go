@@ -80,12 +80,7 @@ func (server *Server) Start() error {
 
 	http.HandleFunc("/", server.websocketHandler)
 
-	err := http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
-	if err != nil {
-		return err
-	} else {
-		return nil
-	}
+	return http.ListenAndServe(fmt.Sprintf(":%d", server.Port), nil)
 }
 
 // websocketHandler handles processing new WebSocket connections to the server.
