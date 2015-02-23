@@ -64,6 +64,13 @@ type Server struct {
 	EnablePeers  bool
 	Port         int
 	AuthToken    string
+	guid         string
+}
+
+// A Peer type represents a connection to fellow conductor servers.
+type Peer struct {
+	c     *connection //the connection to the peer.
+	sName string      //this server name to send to the peers
 }
 
 // CreateServer allocates and returns a new Server.
@@ -71,6 +78,7 @@ func CreateServer(port int) Server {
 	return Server{
 		hub:  createHub(),
 		Port: port,
+		guid: guid.NewUUID().String(),
 	}
 }
 
@@ -103,12 +111,12 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if name != "" {
 		peer = true
-		if server.hub.ifConnectionExist(name) {
-			http.Error(w, "", http.StatusOK) //not sure if we want this or not
+		if server.hub.ifConnectionExist(name) || name == server.guid {
+			http.Error(w, "", http.StatusOK) //is this the code we want to send back?
 		}
 	}
 	authStatus := true
-	//check if the peers tokens match to make sure they are malicious clients
+	//check if the peers tokens match to make sure they aren't malicious clients
 	if peer {
 		testToken := hashToken(server.AuthToken)
 		if testToken != token {
@@ -128,7 +136,6 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-
 		c := &connection{send: make(chan Message, 256), ws: ws, token: token, peer: peer, name: name}
 		server.hub.register <- c
 		go c.writePump(server)
@@ -144,9 +151,28 @@ func (server *Server) AddPeer(peer string) {
 	server.connectToPeer(peer)
 }
 
+//Add a pool of peers. This is a slice of all the peers that can be connected
+func (server *Server) AddPeerPool(peers []string) {
+	for p := range peers {
+		server.connectToPeer(p)
+	}
+}
+
+//returns all the peers
+func (server *Server) AllPeers() []Peer {
+	count := len(server.hub.peers)
+	var collect [count]Peer
+	i := 0
+	for _, c := range server.hub.peers {
+		collect[i] = Peer{c: c, sName: server.guid}
+		i++
+	}
+	return collect
+}
+
 // connectToPeer connects to a peer server by connecting like a client, but with a special header and message.
 func (server *Server) connectToPeer(peer string) {
-	client, err := CreateClient(peer, server.AuthToken, guid.NewUUID().String())
+	client, err := CreateClient(peer, server.AuthToken, server.guid)
 	if err != nil {
 		return
 	}
@@ -154,7 +180,7 @@ func (server *Server) connectToPeer(peer string) {
 	//establish we are a peer
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	fmt.Println("got a new peer:", selfUrl)
+	//fmt.Println("got a new peer:", selfUrl)
 	client.Write(selfUrl, "", PeerBindOpCode, nil)
 
 	//forwards messages from peers onto to the hub.
@@ -174,4 +200,11 @@ func (server *Server) getIP() string {
 		}
 	}
 	return ""
+}
+
+//send the peer a message
+func (p *Peer) SendMessage(body, context string) {
+	if p.c != nil {
+		p.c.send <- Message{Name: p.sName, Body: body, ChannelName: context, OpCode: PeerOpCode}
+	}
 }
