@@ -48,10 +48,16 @@ type Notification interface {
 	InviteHandler(message Message, token string)
 }
 
-// // Implement the Notification interface to satisfy handling ServerQuery messages.
+// // Implement the ServerQuery interface to satisfy handling ServerQuery messages.
 // This is used for when a client needs to request something from the server e.g. (channel history, db data, client info, etc).
 type ServerQuery interface {
 	QueryHandler(message Message, token string) Message
+}
+
+// // Implement the PeerToPeer interface to satisfy handling peer to peer messages.
+// This is used for when a server needs to send message directly to another peer.
+type PeerToPeer interface {
+	PeerMessageHandler(message Message, peer Peer)
 }
 
 // A Server type contains all the handlers, port and authentication token
@@ -61,6 +67,7 @@ type Server struct {
 	Auth         Auth
 	Notification Notification
 	ServerQuery  ServerQuery
+	PeerToPeer   PeerToPeer
 	EnablePeers  bool
 	Port         int
 	AuthToken    string
@@ -153,7 +160,7 @@ func (server *Server) AddPeer(peer string) {
 
 //Add a pool of peers. This is a slice of all the peers that can be connected
 func (server *Server) AddPeerPool(peers []string) {
-	for p := range peers {
+	for _, p := range peers {
 		server.connectToPeer(p)
 	}
 }
@@ -161,7 +168,7 @@ func (server *Server) AddPeerPool(peers []string) {
 //returns all the peers
 func (server *Server) AllPeers() []Peer {
 	count := len(server.hub.peers)
-	var collect [count]Peer
+	collect := make([]Peer, count)
 	i := 0
 	for _, c := range server.hub.peers {
 		collect[i] = Peer{c: c, sName: server.guid}
@@ -203,8 +210,8 @@ func (server *Server) getIP() string {
 }
 
 //send the peer a message
-func (p *Peer) SendMessage(body, context string) {
+func (p *Peer) SendMessage(body, context string, additional interface{}) {
 	if p.c != nil {
-		p.c.send <- Message{Name: p.sName, Body: body, ChannelName: context, OpCode: PeerOpCode}
+		p.c.send <- Message{Name: p.sName, Body: body, ChannelName: context, OpCode: PeerOpCode, Additional: additional}
 	}
 }
