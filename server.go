@@ -55,9 +55,15 @@ type ServerQuery interface {
 }
 
 // // Implement the PeerToPeer interface to satisfy handling peer to peer messages.
-// This is used for when a server needs to send message directly to another peer.
 type PeerToPeer interface {
+	// This is used for when a server needs to handle messages directly from another peer.
 	PeerMessageHandler(message Message, peer Peer)
+
+	// NewPeerHandler runs when a new peer connects.
+	PeerConnectedHandler(peer Peer)
+
+	// NewPeerHandler runs when a new peer disconnects.
+	PeerDisconnectedHandler(peer Peer)
 }
 
 // A Server type contains all the handlers, port and authentication token
@@ -78,19 +84,22 @@ type Server struct {
 type Peer struct {
 	c     *connection //the connection to the peer.
 	sName string      //this server name to send to the peers
+	Name  string      //the name of the peer
 }
 
 // CreateServer allocates and returns a new Server.
-func CreateServer(port int) Server {
+func CreateServer(port int, authToken string) Server {
 	return Server{
-		hub:  createHub(),
-		Port: port,
-		guid: guid.NewUUID().String(),
+		hub:       createHub(),
+		Port:      port,
+		AuthToken: authToken,
+		guid:      guid.NewGUID().String(), //NewUUID Change back after testing!
 	}
 }
 
 // Start starts the server to listen for incoming connections.
 func (server *Server) Start() error {
+	fmt.Println("server guid is:", server.guid)
 	go server.hub.run()
 
 	http.HandleFunc("/", server.websocketHandler)
@@ -119,7 +128,9 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	if name != "" {
 		peer = true
 		if server.hub.ifConnectionExist(name) || name == server.guid {
+			//fmt.Println("already connected peer", name)
 			http.Error(w, "", http.StatusOK) //is this the code we want to send back?
+			return
 		}
 	}
 	authStatus := true
@@ -141,10 +152,14 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			fmt.Println("failed to upgrade")
 			return
 		}
 		c := &connection{send: make(chan Message, 256), ws: ws, token: token, peer: peer, name: name}
 		server.hub.register <- c
+		if c.peer && server.PeerToPeer != nil {
+			server.PeerToPeer.PeerConnectedHandler(Peer{c: c, sName: server.guid, Name: c.name})
+		}
 		go c.writePump(server)
 		c.readPump(server)
 	} else {
@@ -171,7 +186,7 @@ func (server *Server) AllPeers() []Peer {
 	collect := make([]Peer, count)
 	i := 0
 	for _, c := range server.hub.peers {
-		collect[i] = Peer{c: c, sName: server.guid}
+		collect[i] = Peer{c: c, sName: server.guid, Name: c.name}
 		i++
 	}
 	return collect
@@ -181,13 +196,15 @@ func (server *Server) AllPeers() []Peer {
 func (server *Server) connectToPeer(peer string) {
 	client, err := CreateClient(peer, server.AuthToken, server.guid)
 	if err != nil {
+		//fmt.Println("unable to connect to peer: ", err)
 		return
 	}
 
-	//establish we are a peer
+	//establish the 2 way connection by making the other peer connect to this server
+	//fmt.Println("new peer:", peer)
 	ip := server.getIP()
 	selfUrl := fmt.Sprintf("ws://%s:%d", ip, server.Port)
-	//fmt.Println("got a new peer:", selfUrl)
+	//fmt.Println("connect back to new peer:", selfUrl)
 	client.Write(selfUrl, "", PeerBindOpCode, nil)
 
 	//forwards messages from peers onto to the hub.

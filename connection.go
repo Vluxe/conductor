@@ -8,6 +8,7 @@ package conductor
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"time"
 )
@@ -34,6 +35,7 @@ type connection struct {
 	peer     bool
 	name     string
 	token    string
+	closed   bool
 }
 
 // broadcastWriter is type for wrapping a connection,
@@ -94,10 +96,9 @@ func (c *connection) peerBindOp(server *Server, message *Message) {
 
 // peerOp is a message directly between peers
 func (c *connection) peerOp(server *Server, message *Message) {
-	if c.peer {
-		if server.PeerToPeer != nil {
-			server.PeerToPeer.PeerMessageHandler(*message, Peer{c: c, sName: server.guid})
-		}
+	fmt.Println("peer message: ", message.Body)
+	if c.peer && server.PeerToPeer != nil {
+		server.PeerToPeer.PeerMessageHandler(*message, Peer{c: c, sName: server.guid, Name: c.name})
 	}
 }
 
@@ -226,13 +227,21 @@ func (c *connection) canWrite(message *Message, server *Server) bool {
 
 // closeConnection closes the connection.
 func (c *connection) closeConnection(server *Server) {
+	if c.closed {
+		return
+	}
+	c.closed = true
 	//unbind from all the channels if client is disconnected
 	if server.Notification != nil {
 		for _, name := range c.channels {
 			server.Notification.UnBindHandler(Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}, c.token)
 		}
 	}
+	if c.peer && server.PeerToPeer != nil {
+		server.PeerToPeer.PeerDisconnectedHandler(Peer{c: c, sName: server.guid, Name: c.name})
+	}
 	server.hub.unregister <- c
+	c.write(websocket.CloseMessage, Message{})
 	c.ws.Close()
 }
 

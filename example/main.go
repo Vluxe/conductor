@@ -20,13 +20,12 @@ func main() {
 	var s Storage
 	var q Query
 	var a Auther
-	server := conductor.CreateServer(*addr)
+	server := conductor.CreateServer(*addr, "FakeToken")
 	server.Notification = s
 	server.ServerQuery = q
 	server.Auth = a
 	peerUrl := fmt.Sprintf("ws://localhost:%d", *peer)
 	log.Println("peerUrl: ", peerUrl)
-	server.AuthToken = "FakeToken"
 	server.AddPeer(peerUrl)
 	err := server.Start()
 	if err != nil {

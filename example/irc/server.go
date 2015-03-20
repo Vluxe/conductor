@@ -9,7 +9,7 @@ type Storage int
 
 func main() {
 	var s Storage
-	server := conductor.CreateServer(8080)
+	server := conductor.CreateServer(8080, "")
 	server.Notification = s
 	server.Start()
 }

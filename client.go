@@ -125,8 +125,9 @@ func (client *Client) ReadLoop() {
 		var message Message
 		err := client.conn.ReadJSON(&message)
 		if err != nil {
+			client.Disconnect()
 			//need to do notify that an error has occurred
-			break
+			return
 		}
 		if client.isPeer && client.serverChannel != nil {
 			client.serverChannel(message)
@@ -172,5 +173,6 @@ func (client *Client) Disconnect() {
 	if client.isConnected {
 		client.channels = make(map[string]func(Message))
 		client.conn.Close()
+		client.isConnected = false
 	}
 }
