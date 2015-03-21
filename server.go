@@ -82,9 +82,10 @@ type Server struct {
 
 // A Peer type represents a connection to fellow conductor servers.
 type Peer struct {
-	c     *connection //the connection to the peer.
-	sName string      //this server name to send to the peers
-	Name  string      //the name of the peer
+	c      *connection //the connection to the remote peer.
+	client *Client     //the client that can write to the remote peer.
+	sName  string      //this server name to send to the peers
+	Name   string      //the name of the peer
 }
 
 // CreateServer allocates and returns a new Server.
@@ -167,6 +168,8 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+//peer handling methods
+
 // AddPeer adds a peer. peer param should be a valid URL/path that this
 // server can connect to.
 func (server *Server) AddPeer(peer string) {
@@ -209,7 +212,13 @@ func (server *Server) connectToPeer(peer string) {
 
 	//forwards messages from peers onto to the hub.
 	client.ServerBind(func(msg Message) {
-		server.hub.broadcast <- broadcastWriter{conn: nil, message: &msg, peer: true}
+		if msg.OpCode == PeerOpCode {
+			if server.PeerToPeer != nil {
+				server.PeerToPeer.PeerMessageHandler(msg, Peer{client: &client, sName: server.guid, Name: msg.Name})
+			}
+		} else {
+			server.hub.broadcast <- broadcastWriter{conn: nil, message: &msg, peer: true}
+		}
 	})
 	go client.ReadLoop()
 }
@@ -230,5 +239,7 @@ func (server *Server) getIP() string {
 func (p *Peer) SendMessage(body, context string, additional interface{}) {
 	if p.c != nil {
 		p.c.send <- Message{Name: p.sName, Body: body, ChannelName: context, OpCode: PeerOpCode, Additional: additional}
+	} else if p.client != nil {
+		p.client.Write(body, context, PeerOpCode, additional)
 	}
 }
