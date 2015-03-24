@@ -163,7 +163,6 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		go c.writePump(server)
 		c.readPump(server)
-		fmt.Println("handle not released...")
 	} else {
 		http.Error(w, "Failed to connect, access denied", 401)
 	}

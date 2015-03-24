@@ -68,6 +68,8 @@ func (c *connection) readPump(server *Server) {
 		switch message.OpCode {
 		case PeerBindOpCode: // message for connecting peers.
 			c.peerBindOp(server, &message)
+		case PeerOpCode: // message between peers.
+			c.peerOp(server, &message)
 		case ServerOpCode: // message from a "client" to run our serverQuery callback.
 			c.serverOp(server, &message)
 		case InviteOpCode: // message when an invitation to join a channel is sent.
@@ -81,6 +83,13 @@ func (c *connection) readPump(server *Server) {
 		default: // broadcast message.
 			c.broadcastMessage(server, &message)
 		}
+	}
+}
+
+// PeerOpCode to handle messages between peers.
+func (c *connection) peerOp(server *Server, message *Message) {
+	if c.peer && server.PeerToPeer != nil {
+		server.PeerToPeer.PeerMessageHandler(*message, Peer{c: c, sName: server.guid, Name: message.Name})
 	}
 }
 
