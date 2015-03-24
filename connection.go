@@ -88,7 +88,7 @@ func (c *connection) readPump(server *Server) {
 
 // PeerOpCode to handle messages between peers.
 func (c *connection) peerOp(server *Server, message *Message) {
-	if c.peer && server.PeerToPeer != nil {
+	if server.PeerToPeer != nil {
 		server.PeerToPeer.PeerMessageHandler(*message, Peer{c: c, sName: server.guid, Name: message.Name})
 	}
 }
