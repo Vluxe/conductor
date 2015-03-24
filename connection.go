@@ -231,7 +231,6 @@ func (c *connection) closeConnection(server *Server) {
 	}
 	server.hub.unregister <- c
 	c.write(websocket.CloseMessage, Message{})
-	c.ws.Close()
 }
 
 // writePump sends messages from the hub to the websocket connection.

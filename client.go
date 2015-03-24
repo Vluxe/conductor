@@ -172,6 +172,7 @@ func (client *Client) Connect() error {
 func (client *Client) Disconnect() {
 	if client.isConnected {
 		client.channels = make(map[string]func(Message))
+		client.serverChannel = nil
 		client.conn.Close()
 		client.isConnected = false
 	}
