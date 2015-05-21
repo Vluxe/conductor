@@ -95,13 +95,13 @@ func CreateServer(port int, authToken string) Server {
 		hub:       createHub(),
 		Port:      port,
 		AuthToken: authToken,
-		guid:      guid.NewGUID().String(), //NewUUID Change back after testing!
+		guid:      guid.NewUUID().String(),
 	}
 }
 
 // Start starts the server to listen for incoming connections.
 func (server *Server) Start() error {
-	fmt.Println("server guid is:", server.guid)
+	//fmt.Println("server guid is:", server.guid)
 	go server.hub.run()
 
 	http.HandleFunc("/", server.websocketHandler)
@@ -155,7 +155,8 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			fmt.Println("failed to upgrade")
+			//fmt.Println("failed to upgrade")
+			http.Error(w, "failed to upgrade", 500)
 			return
 		}
 		c := &connection{send: make(chan Message, 256), ws: ws, token: token, peer: peer, name: name}
