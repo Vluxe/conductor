@@ -10,10 +10,11 @@ package conductor
 
 import (
 	"fmt"
-	"github.com/daltoniam/goguid"
-	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
+
+	"github.com/daltoniam/goguid"
+	"github.com/gorilla/websocket"
 )
 
 // Implement the Auth interface to satisfy authentication. If unimplemented
@@ -150,6 +151,7 @@ func (server *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
+			CheckOrigin:     func(r *http.Request) bool { return true },
 		}
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
