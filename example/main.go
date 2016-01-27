@@ -1,71 +1,58 @@
 package main
 
 import (
-	"flag"
+	"bufio"
+	"encoding/json"
 	"fmt"
-	"github.com/Vluxe/conductor"
 	"log"
-	"net/http"
+	"os"
+
+	"github.com/Vluxe/conductor"
+	"github.com/acmacalister/skittles"
 )
 
-type Storage int
-type Query int
-type Auther int
-
-var addr = flag.Int("addr", 8080, "http service address")
-var peer = flag.Int("peer", 8081, "http service address")
+type user struct {
+	Text string `json:"text"`
+}
 
 func main() {
-	flag.Parse()
-	var s Storage
-	var q Query
-	var a Auther
-	server := conductor.CreateServer(*addr, "FakeToken")
-	server.Notification = s
-	server.ServerQuery = q
-	server.Auth = a
-	peerUrl := fmt.Sprintf("ws://localhost:%d", *peer)
-	log.Println("peerUrl: ", peerUrl)
-	server.AddPeer(peerUrl)
-	err := server.Start()
+	server := conductor.New(8080)
+	go server.Start()
+
+	go func() {
+		client, err := conductor.NewClient("ws://localhost:8080")
+		if err != nil {
+			log.Fatal(skittles.BoldRed(err))
+		}
+
+		client.BindToChannel("hello")
+		for {
+			select {
+			case message := <-client.Read:
+				//val := string(message.([]uint8))
+				var u user
+				json.Unmarshal(message.([]byte), &u)
+				fmt.Print(skittles.Cyan(u.Text))
+			}
+		}
+	}()
+
+	client, err := conductor.NewClient("ws://localhost:8080")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(skittles.BoldRed(err))
 	}
-}
+	client.BindToChannel("hello")
 
-func (s Storage) PersistentHandler(message conductor.Message, token string) {
-	fmt.Println("store some stuff: ", message.Body)
-}
+	fmt.Println(skittles.BoldGreen("Starting reader..."))
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(skittles.BoldRed(err))
+		}
 
-func (s Storage) BindHandler(message conductor.Message, token string) {
-	fmt.Printf("%s bound to: %s\n", message.Name, message.ChannelName)
-}
-
-func (s Storage) UnBindHandler(message conductor.Message, token string) {
-	fmt.Printf("%s unbound from: %s\n", message.Name, message.ChannelName)
-}
-
-func (s Storage) InviteHandler(message conductor.Message, token string) {
-	fmt.Println("got an invitation.")
-}
-
-func (q Query) QueryHandler(message conductor.Message, token string) conductor.Message {
-	fmt.Println("got a query: ", message.Body)
-	return conductor.Message{Body: "nobody\n", ChannelName: "", OpCode: conductor.ServerOpCode}
-}
-
-func (a Auther) InitalAuthHandler(r *http.Request, token string) (bool, string) {
-	return true, "Bob"
-}
-
-func (a Auther) ChannelAuthHandler(message conductor.Message, token string) bool {
-	return true
-}
-
-func (a Auther) MessageAuthHandler(message conductor.Message, token string) bool {
-	return true
-}
-
-func (a Auther) MessagAuthBoundHandler(message conductor.Message, token string) bool {
-	return true
+		u := user{Text: line}
+		b, _ := json.Marshal(u)
+		client.Write("hello", b)
+	}
 }

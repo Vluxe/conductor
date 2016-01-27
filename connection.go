@@ -1,15 +1,11 @@
-// Copyright 2013/2014 The Gorilla WebSocket & Conductor Authors. All rights reserved.
-// some code borrowed from example chat program of
-// https://github.com/gorilla/websocket
-// Gorilla under BSD-style. See it's LICENSE file for more info.
-// Conductor under Apache v2. License can be found in the LICENSE file.
-
 package conductor
 
 import (
-	"encoding/json"
-	"github.com/gorilla/websocket"
+	"log"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/ugorji/go/codec"
 )
 
 const (
@@ -26,253 +22,67 @@ const (
 	maxMessageSize = 512 * 500 // Don't leave me like this!!
 )
 
-// connection is an middleman between the websocket connection and the hub.
 type connection struct {
-	ws       *websocket.Conn
-	send     chan Message
+	// the underlining  websocket connection we need to hold on it.
+	ws *websocket.Conn
+
+	// we might want to change this to a singleton, but maintain a pointer to the hub.
+	h *hub
+
+	// maintain a list of channels this client is bound to. (useful for clean up.)
 	channels []string
-	peer     bool
-	name     string
-	token    string
-	closed   bool
 }
 
-// broadcastWriter is type for wrapping a connection,
-// message and peer setting into something concrete to
-// send to the hub.
-type broadcastWriter struct {
-	conn    *connection
-	message *Message
-	peer    bool
+type Message struct {
+	OpCode      int         `json:"opcode"`
+	ChannelName string      `json:"channel_name"`
+	Body        interface{} `json:"body"` // don't parse the body, as it defined by the user. *codec.RawExt
 }
 
-// readPump sends messages from the connection to the hub.
-func (c *connection) readPump(server *Server) {
-	defer c.closeConnection(server)
-
+func (c *connection) reader() {
 	// Setup our connection's websocket ping/pong handlers from our const values.
 	c.ws.SetReadLimit(maxMessageSize)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 
-	// This is our blocking loop. Hence us starting it in it's own goroutine.
-	// It processes all the read messages for this connection.
+	go c.ticker() // keeps the websocket simulated as per spec.
+
 	for {
-		var message Message
-		err := c.ws.ReadJSON(&message)
-		if err != nil {
-			break
-		}
-
-		message.Name = c.name
-		switch message.OpCode {
-		case PeerBindOpCode: // message for connecting peers.
-			c.peerBindOp(server, &message)
-		case PeerOpCode: // message between peers.
-			c.peerOp(server, &message)
-		case ServerOpCode: // message from a "client" to run our serverQuery callback.
-			c.serverOp(server, &message)
-		case InviteOpCode: // message when an invitation to join a channel is sent.
-			c.inviteOp(server, &message)
-		case BindOpCode: // message to bind to a channel.
-			c.bindOp(server, &message)
-		case UnBindOpCode: // message to unbind to channel.
-			c.unbindOp(server, &message)
-		case WriteOpCode: // message to writes to channel.
-			c.writeOp(server, &message)
-		default: // broadcast message.
-			c.broadcastMessage(server, &message)
-		}
+		c.h.messages <- c.decodeHubMessage()
 	}
 }
 
-// PeerOpCode to handle messages between peers.
-func (c *connection) peerOp(server *Server, message *Message) {
-	if server.PeerToPeer != nil {
-		server.PeerToPeer.PeerMessageHandler(*message, Peer{c: c, sName: server.guid, Name: message.Name})
-	}
-}
-
-// peerBindOp when a connection needs to connect to a peer.
-func (c *connection) peerBindOp(server *Server, message *Message) {
-	if c.peer {
-		server.connectToPeer(message.Body)
-	}
-}
-
-// serverOp when a connection needs to execute query handler callback.
-func (c *connection) serverOp(server *Server, message *Message) {
-	if server.ServerQuery != nil {
-		c.send <- server.ServerQuery.QueryHandler(*message, c.token)
-	}
-}
-
-// inviteOp when a connection needs to send an invitation out.
-func (c *connection) inviteOp(server *Server, message *Message) {
-	if server.Notification != nil {
-		server.Notification.InviteHandler(*message, c.token)
-	}
-	server.hub.invite <- broadcastWriter{conn: c, message: message, peer: false}
-}
-
-// bindOp when a connection needs to bind to a channel.
-func (c *connection) bindOp(server *Server, message *Message) {
-	c.bind(message, server)
-	if server.Notification != nil {
-		server.Notification.BindHandler(*message, c.token)
-	}
-	c.broadcastMessage(server, message)
-}
-
-// unbindOp when a connection needs to unbind from a channel.
-func (c *connection) unbindOp(server *Server, message *Message) {
-	c.unbind(message, server)
-	if server.Notification != nil {
-		server.Notification.UnBindHandler(*message, c.token)
-	}
-	c.broadcastMessage(server, message)
-}
-
-// writeOp when a connection needs to write to a channel.
-func (c *connection) writeOp(server *Server, message *Message) {
-	if server.Notification != nil {
-		server.Notification.PersistentHandler(*message, c.token)
-	}
-	c.broadcastMessage(server, message)
-}
-
-// broadcastMessage when a connection needs to send a message out to the hub.
-func (c *connection) broadcastMessage(server *Server, message *Message) {
-	if c.canWrite(message, server) {
-		server.hub.broadcast <- broadcastWriter{conn: c, message: message, peer: false}
-	}
-}
-
-// checkAuthStatus to see if the connection is allowed to send to channel/message.
-func (c *connection) checkAuthStatus(server *Server, message *Message, channel bool) bool {
-	if !c.peer && server.Auth != nil {
-		if channel {
-			return server.Auth.ChannelAuthHandler(*message, c.token)
-		} else {
-			return server.Auth.MessageAuthHandler(*message, c.token)
-		}
-	}
-	return true
-}
-
-// bind to a channel.
-func (c *connection) bind(message *Message, server *Server) {
-	authStatus := c.checkAuthStatus(server, message, true)
-	if authStatus {
-		addChannel := true
-		for _, channel := range c.channels { // check to see if we are already bound to channel.
-			if channel == message.ChannelName {
-				addChannel = false
-				break
-			}
-		}
-
-		if addChannel { // if we aren't add the channel to our connection and notify the hub.
-			server.hub.bind <- broadcastWriter{conn: c, message: message, peer: false}
-			c.channels = append(c.channels, message.ChannelName)
-		}
-	} else {
-		c.closeConnection(server)
-	}
-}
-
-// unbind from a channel.
-func (c *connection) unbind(message *Message, server *Server) {
-	authStatus := c.checkAuthStatus(server, message, true)
-	if authStatus {
-		for i, channel := range c.channels {
-			if channel == message.ChannelName {
-				c.channels = append(c.channels[:i], c.channels[i+1:]...) // remove the channel.
-				break
-			}
-		}
-		server.hub.unbind <- broadcastWriter{conn: c, message: message, peer: false}
-	} else {
-		c.closeConnection(server)
-	}
-}
-
-// canWrite checks to make sure we can write.
-func (c *connection) canWrite(message *Message, server *Server) bool {
-	if c.peer {
-		return true
-	}
-	authStatus := c.checkAuthStatus(server, message, false)
-	//check if a client should check the channels
-	if authStatus {
-		if server.Auth != nil {
-			if !server.Auth.MessagAuthBoundHandler(*message, c.token) {
-				return authStatus
-			}
-		}
-	}
-
-	if authStatus { // check if this a channel the client is bound to
-		authStatus = false
-		for _, channel := range c.channels {
-			if channel == message.ChannelName {
-				return true
-			}
-		}
-	}
-	return authStatus
-}
-
-// closeConnection closes the connection.
-func (c *connection) closeConnection(server *Server) {
-	if c.closed {
-		return
-	}
-	c.closed = true
-	//unbind from all the channels if client is disconnected
-	if server.Notification != nil {
-		for _, name := range c.channels {
-			server.Notification.UnBindHandler(Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}, c.token)
-		}
-	}
-	if c.peer && server.PeerToPeer != nil {
-		server.PeerToPeer.PeerDisconnectedHandler(Peer{c: c, sName: server.guid, Name: c.name})
-	}
-	server.hub.unregister <- c
-	c.write(websocket.CloseMessage, Message{})
-}
-
-// writePump sends messages from the hub to the websocket connection.
-func (c *connection) writePump(server *Server) {
+func (c *connection) ticker() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.closeConnection(server)
+		//c.h.messages <- &hubMessage{c: c, header: &Message{OpCode: LeaveOpCode, ChannelName: ""}}
+		c.ws.WriteMessage(websocket.CloseMessage, nil)
 	}()
 
 	for { // blocking loop with select to wait for stimulation.
 		select {
-		case message, ok := <-c.send:
-			if !ok {
-				c.write(websocket.CloseMessage, Message{})
-				return
-			}
-			authStatus := c.checkAuthStatus(server, &message, false)
-			err := c.write(websocket.TextMessage, message)
-			if err != nil && authStatus {
-				return
-			}
 		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, Message{}); err != nil {
-				return
-			}
+			c.ws.WriteMessage(websocket.PingMessage, nil)
 		}
 	}
 }
 
-// write writes a message with the given message type and payload.
-func (c *connection) write(mt int, payload Message) error {
-	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-	buf, _ := json.Marshal(payload)
-	return c.ws.WriteMessage(mt, buf)
+func (c *connection) decodeHubMessage() *hubMessage {
+	header := decodeMessage(c.ws)
+	return &hubMessage{c: c, header: &header}
+}
+
+func decodeMessage(ws *websocket.Conn) Message {
+	_, r, err := ws.NextReader()
+	if err != nil {
+		log.Fatal("reader error: ", err) // do something else here.
+	}
+	h := new(codec.MsgpackHandle)
+	dec := codec.NewDecoder(r, h)
+	var header Message
+	if err := dec.Decode(&header); err != nil {
+		log.Fatal("decode error: ", err) // do something else here.
+	}
+	return header
 }
