@@ -26,7 +26,9 @@ func (h *hub) run() {
 	for { // blocking loop that waits for stimulation
 		select {
 		case message := <-h.messages:
-			h.processMessage(message)
+			if message != nil {
+				h.processMessage(message)
+			}
 		}
 	}
 }
@@ -52,10 +54,17 @@ func (h *hub) bindConnectionToChannel(message *hubMessage) {
 	connections := h.channels[message.header.ChannelName]
 	connections = append(connections, message.c)
 	h.channels[message.header.ChannelName] = connections
+	message.c.channels = append(message.c.channels, message.header.ChannelName)
 }
 
 func (h *hub) unbindConnectionToChannel(message *hubMessage) {
 	h.removeConnection(message.header.ChannelName, message.c)
+	for i, channel := range message.c.channels {
+		if channel == message.header.ChannelName {
+			message.c.channels = append(message.c.channels[:i], message.c.channels[i+1:]...)
+			break
+		}
+	}
 }
 
 func (h *hub) writeToChannel(message *hubMessage) {

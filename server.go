@@ -51,6 +51,6 @@ func (s *Server) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := &connection{ws: ws, h: s.h, channels: make([]string, 1)}
+	c := newConnection(ws, s.h)
 	c.reader()
 }

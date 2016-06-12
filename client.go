@@ -56,7 +56,11 @@ func NewClient(serverUrl string) (*Client, error) {
 	go func() {
 		for {
 			message := decodeMessage(c.ws)
-			channel <- message.Body
+			if message == nil {
+				break
+			} else {
+				channel <- message.Body
+			}
 		}
 	}()
 
