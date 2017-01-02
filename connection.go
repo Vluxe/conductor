@@ -1,11 +1,9 @@
 package conductor
 
 import (
-	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ugorji/go/codec"
 )
 
 const (
@@ -34,12 +32,6 @@ type connection struct {
 
 	// maintain a list of channels this client is bound to. (useful for clean up.)
 	channels []string
-}
-
-type Message struct {
-	OpCode      int         `json:"opcode"`
-	ChannelName string      `json:"channel_name"`
-	Body        interface{} `json:"body"` // don't parse the body, as it defined by the user. *codec.RawExt
 }
 
 func newConnection(ws *websocket.Conn, h *hub) *connection {
@@ -80,31 +72,27 @@ func (c *connection) doTick() {
 
 func (c *connection) disconnect() {
 	c.ticker.Stop()
-	c.h.messages <- &hubMessage{c: c, header: &Message{OpCode: CleanUpOpcode, ChannelName: ""}}
+	c.h.messages <- &hubMessage{c: c, m: &Message{Opcode: CleanUpOpcode, StreamName: ""}}
 	c.ws.WriteMessage(websocket.CloseMessage, nil)
 	c.ws.Close()
 }
 
 func (c *connection) decodeHubMessage() *hubMessage {
-	header := decodeMessage(c.ws)
-	if header != nil {
-		return &hubMessage{c: c, header: header}
+	m := decodeMessage(c.ws)
+	if m != nil {
+		return &hubMessage{c: c, m: m}
 	}
 	return nil
 }
 
 func decodeMessage(ws *websocket.Conn) *Message {
-	_, r, err := ws.NextReader()
+	_, buf, err := ws.ReadMessage()
 	if err != nil {
-		log.Print("reader error: ", err) // do something else here.
-		return nil
+		// handle error
 	}
-	h := new(codec.MsgpackHandle)
-	dec := codec.NewDecoder(r, h)
-	var header Message
-	if err := dec.Decode(&header); err != nil {
-		log.Print("decode error: ", err) // do something else here.
-		return nil
+	message, err := Unmarshal(buf)
+	if err != nil {
+		// handle error
 	}
-	return &header
+	return message
 }

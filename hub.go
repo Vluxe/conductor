@@ -1,17 +1,15 @@
 package conductor
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 
 	"github.com/gorilla/websocket"
-	"github.com/ugorji/go/codec"
 )
 
 type hubMessage struct {
-	c      *connection
-	header *Message
+	c *connection
+	m *Message
 }
 
 type hub struct {
@@ -34,14 +32,14 @@ func (h *hub) run() {
 }
 
 func (h *hub) processMessage(message *hubMessage) {
-	switch opcode := message.header.OpCode; opcode {
-	case BindOpCode:
+	switch opcode := message.m.Opcode; opcode {
+	case BindOpcode:
 		h.bindConnectionToChannel(message)
-	case UnBindOpCode:
+	case UnbindOpcode:
 		h.unbindConnectionToChannel(message)
-	case WriteOpCode:
+	case WriteOpcode:
 		h.writeToChannel(message)
-	case ServerOpCode:
+	case ServerOpcode:
 		h.handleServerMessage(message)
 	case CleanUpOpcode:
 		h.connectionCleanup(message)
@@ -51,16 +49,16 @@ func (h *hub) processMessage(message *hubMessage) {
 }
 
 func (h *hub) bindConnectionToChannel(message *hubMessage) {
-	connections := h.channels[message.header.ChannelName]
+	connections := h.channels[message.m.StreamName]
 	connections = append(connections, message.c)
-	h.channels[message.header.ChannelName] = connections
-	message.c.channels = append(message.c.channels, message.header.ChannelName)
+	h.channels[message.m.StreamName] = connections
+	message.c.channels = append(message.c.channels, message.m.StreamName)
 }
 
 func (h *hub) unbindConnectionToChannel(message *hubMessage) {
-	h.removeConnection(message.header.ChannelName, message.c)
+	h.removeConnection(message.m.StreamName, message.c)
 	for i, channel := range message.c.channels {
-		if channel == message.header.ChannelName {
+		if channel == message.m.StreamName {
 			message.c.channels = append(message.c.channels[:i], message.c.channels[i+1:]...)
 			break
 		}
@@ -68,19 +66,17 @@ func (h *hub) unbindConnectionToChannel(message *hubMessage) {
 }
 
 func (h *hub) writeToChannel(message *hubMessage) {
-	buf := new(bytes.Buffer) // probably need a bigger buffer.
-	handle := new(codec.MsgpackHandle)
-	enc := codec.NewEncoder(buf, handle)
-	if err := enc.Encode(message.header); err != nil {
-		log.Fatal(err) // do something else here.
+	buf, err := message.m.Marshal()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	connections := h.channels[message.header.ChannelName]
+	connections := h.channels[message.m.StreamName]
 	for _, conn := range connections {
 		if message.c == conn {
 			continue
 		}
-		if err := conn.ws.WriteMessage(websocket.BinaryMessage, buf.Bytes()); err != nil {
+		if err := conn.ws.WriteMessage(websocket.BinaryMessage, buf); err != nil {
 			log.Fatal(err) // do something else here.
 		}
 	}

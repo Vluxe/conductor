@@ -7,14 +7,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	BindOpCode    = iota // a message to bind to a channel. This will create the channel if it does not exist.
-	UnBindOpCode         // a message to unbind from a channel.
-	WriteOpCode          // a message to be broadcast on provided channel.
-	ServerOpCode         // a message intend to be between a single client and the server (not broadcasted).
-	CleanUpOpcode        // a message to cleanup a disconnected client/connection.
-)
-
 type Server struct {
 	Port int
 	h    *hub

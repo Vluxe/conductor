@@ -1,14 +1,13 @@
 package conductor
 
 import (
-	"bytes"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 
 	"github.com/gorilla/websocket"
-	"github.com/ugorji/go/codec"
 )
 
 const (
@@ -67,31 +66,47 @@ func NewClient(serverUrl string) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) BindToChannel(channelName string) {
-	c.write(&Message{OpCode: BindOpCode, ChannelName: channelName})
+func (c *Client) Bind(streamName string) {
+	c.write(&Message{Opcode: BindOpcode, StreamName: streamName})
 }
 
-func (c *Client) UnBindFromChannel(channelName string) {
-	c.write(&Message{OpCode: UnBindOpCode, ChannelName: channelName})
+func (c *Client) Unbind(streamName string) {
+	c.write(&Message{Opcode: UnbindOpcode, StreamName: streamName})
 }
 
-func (c *Client) Write(channelName string, messageBody interface{}) {
-	c.write(&Message{OpCode: WriteOpCode, ChannelName: channelName, Body: messageBody})
+func (c *Client) Write(streamName string, messageBody []byte) {
+	c.write(&Message{Opcode: WriteOpcode, StreamName: streamName, Body: messageBody})
 }
 
-func (c *Client) ServerMessage(messageBody interface{}) {
-	c.write(&Message{OpCode: ServerOpCode, ChannelName: "", Body: messageBody})
+func (c *Client) ServerMessage(messageBody []byte) {
+	c.write(&Message{Opcode: ServerOpcode, StreamName: "", Body: messageBody})
+}
+
+func (c *Client) WriteStream(streamName string, reader io.Reader) error {
+	buf := make([]byte, 32*1024)
+	c.write(&Message{Opcode: StreamStartOpcode, StreamName: streamName})
+	defer c.write(&Message{Opcode: StreamEndOpcode, StreamName: streamName})
+	for {
+		nr, err := reader.Read(buf)
+		if nr > 0 {
+			c.write(&Message{Opcode: StreamWriteOpcode, StreamName: streamName, Body: buf[0:nr]})
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) write(message *Message) {
-	buf := new(bytes.Buffer) // probably need a bigger buffer.
-	handle := new(codec.MsgpackHandle)
-	enc := codec.NewEncoder(buf, handle)
-	if err := enc.Encode(message); err != nil {
-		log.Fatal(err) // do something else here.
+	buf, err := message.Marshal()
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	if err := c.ws.WriteMessage(websocket.BinaryMessage, buf.Bytes()); err != nil {
+	if err := c.ws.WriteMessage(websocket.BinaryMessage, buf); err != nil {
 		log.Fatal(err) // do something else here.
 	}
 
