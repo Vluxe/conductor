@@ -1,12 +1,22 @@
 package conductor
 
 import (
+	"bytes"
 	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/ugorji/go/codec"
 )
+
+// Connection is the based interface for mocking a connection.
+type Connection interface {
+	Write(message *Message) error // Write is to send a message to the client this connection represents.
+	ReadLoop(hub HubConnection)   // ReadLoop is the loop that keeps this connection alive. This is where read messages go.
+	Disconnect()                  // Disconnect is use to disconnect the connection.
+	Channels() []string
+	SetChannels(channels []string)
+}
 
 const (
 	// Time allowed to write a message to the peer.
@@ -22,7 +32,8 @@ const (
 	maxMessageSize = 512 * 500 // Don't leave me like this!!
 )
 
-type connection struct {
+//WSConnection is the default websocket implementation.
+type wsconnection struct {
 	// the underlining  websocket connection we need to hold on it.
 	ws *websocket.Conn
 
@@ -30,23 +41,21 @@ type connection struct {
 	ticker *time.Ticker
 
 	// we might want to change this to a singleton, but maintain a pointer to the hub.
-	h *hub
+	h HubConnection
 
 	// maintain a list of channels this client is bound to. (useful for clean up.)
 	channels []string
 }
 
-type Message struct {
-	OpCode      int         `json:"opcode"`
-	ChannelName string      `json:"channel_name"`
-	Body        interface{} `json:"body"` // don't parse the body, as it defined by the user. *codec.RawExt
+// newWSConnection creates a new wsconnection object using the gorilla websocket.Conn as the underlying transport.
+// HubConnection is also provided to have a simple way to write to the hub without having the hubs runloop methods.
+func newWSConnection(ws *websocket.Conn, h HubConnection) *wsconnection {
+	return &wsconnection{ws: ws, h: h, channels: make([]string, 1), ticker: time.NewTicker(pingPeriod)}
 }
 
-func newConnection(ws *websocket.Conn, h *hub) *connection {
-	return &connection{ws: ws, h: h, channels: make([]string, 1), ticker: time.NewTicker(pingPeriod)}
-}
-
-func (c *connection) reader() {
+// ReadLoop sets up the websocket reader in a loop to handle messages and forward them to the hub as they come in
+// It also starts the ticker to ensure the socket has stimulation and doesn't get closed as an idle connection.
+func (c *wsconnection) ReadLoop(hub HubConnection) {
 	// Setup our connection's websocket ping/pong handlers from our const values.
 	c.ws.SetReadLimit(maxMessageSize)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
@@ -55,19 +64,30 @@ func (c *connection) reader() {
 	go c.doTick() // keeps the websocket simulated as per spec.
 
 	for {
-		mess := c.decodeHubMessage()
+		mess := c.decodeMessage()
 		if mess == nil {
-			c.disconnect()
+			c.Disconnect()
 			break
 		} else {
-			c.h.messages <- mess
+			hub.Write(c, mess)
 		}
 	}
 }
 
-func (c *connection) doTick() {
+//Write sends the content of the message to the client.
+func (c *wsconnection) Write(message *Message) error {
+	buf := new(bytes.Buffer) // probably need a bigger buffer.
+	handle := new(codec.MsgpackHandle)
+	enc := codec.NewEncoder(buf, handle)
+	if err := enc.Encode(message); err != nil {
+		return err
+	}
+	return c.ws.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+}
+
+func (c *wsconnection) doTick() {
 	defer func() {
-		c.disconnect()
+		c.Disconnect()
 	}()
 
 	for { // blocking loop with select to wait for stimulation.
@@ -78,33 +98,33 @@ func (c *connection) doTick() {
 	}
 }
 
-func (c *connection) disconnect() {
+func (c *wsconnection) Disconnect() {
 	c.ticker.Stop()
-	c.h.messages <- &hubMessage{c: c, header: &Message{OpCode: CleanUpOpcode, ChannelName: ""}}
+	c.h.Write(c, &Message{OpCode: CleanUpOpcode, ChannelName: ""})
 	c.ws.WriteMessage(websocket.CloseMessage, nil)
 	c.ws.Close()
 }
 
-func (c *connection) decodeHubMessage() *hubMessage {
-	header := decodeMessage(c.ws)
-	if header != nil {
-		return &hubMessage{c: c, header: header}
-	}
-	return nil
+func (c *wsconnection) Channels() []string {
+	return c.channels
 }
 
-func decodeMessage(ws *websocket.Conn) *Message {
-	_, r, err := ws.NextReader()
+func (c *wsconnection) SetChannels(channels []string) {
+	c.channels = channels
+}
+
+func (c *wsconnection) decodeMessage() *Message {
+	_, r, err := c.ws.NextReader()
 	if err != nil {
 		log.Print("reader error: ", err) // do something else here.
 		return nil
 	}
 	h := new(codec.MsgpackHandle)
 	dec := codec.NewDecoder(r, h)
-	var header Message
-	if err := dec.Decode(&header); err != nil {
+	var message Message
+	if err := dec.Decode(&message); err != nil {
 		log.Print("decode error: ", err) // do something else here.
 		return nil
 	}
-	return &header
+	return &message
 }

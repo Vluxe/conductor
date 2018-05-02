@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/Vluxe/conductor"
 	"github.com/acmacalister/skittles"
@@ -16,7 +17,8 @@ type user struct {
 }
 
 func main() {
-	server := conductor.New(8080)
+	deduper := conductor.NewDeDuper(time.Second*60, time.Second*30)
+	server := conductor.New(8080, deduper)
 	go server.Start()
 
 	go func() {
