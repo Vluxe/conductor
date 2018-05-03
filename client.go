@@ -1,16 +1,15 @@
 package conductor
 
 import (
-	"bytes"
+	"crypto/rand"
+	"fmt"
+	"io"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ugorji/go/codec"
 )
 
 const (
@@ -70,78 +69,79 @@ func NewClient(serverURL string) (*Client, error) {
 	return c, nil
 }
 
-func (c *Client) BindToChannel(channelName string) {
-	id := RandStringBytesMaskImprSrc(32)
-	c.write(&Message{OpCode: BindOpCode, ChannelName: channelName, ID: id})
+//Bind is used to send a bind request to a channel
+func (c *Client) Bind(channelName string) {
+	c.write(&Message{Opcode: BindOpcode, ChannelName: channelName, Uuid: newUUID()})
 }
 
-func (c *Client) UnBindFromChannel(channelName string) {
-	id := RandStringBytesMaskImprSrc(32)
-	c.write(&Message{OpCode: UnBindOpCode, ChannelName: channelName, ID: id})
+//Unbind is used to send an unbind request to a channel
+func (c *Client) Unbind(channelName string) {
+	c.write(&Message{Opcode: UnbindOpcode, ChannelName: channelName, Uuid: newUUID()})
 }
 
-func (c *Client) Write(channelName string, messageBody interface{}) {
-	id := RandStringBytesMaskImprSrc(32)
-	c.write(&Message{OpCode: WriteOpCode, ChannelName: channelName, Body: messageBody, ID: id})
+//Write to send a message to a channel
+func (c *Client) Write(channelName string, messageBody []byte) {
+	c.write(&Message{Opcode: WriteOpcode, ChannelName: channelName, Uuid: newUUID(), Body: messageBody})
 }
 
-func (c *Client) ServerMessage(messageBody interface{}) {
-	//c.write(&Message{OpCode: ServerOpCode, ChannelName: "", Body: messageBody})
+//ServerMessage sends a message to the server for server operations (like getting message history or something)
+func (c *Client) ServerMessage(messageBody []byte) {
+	c.write(&Message{Opcode: ServerOpcode, ChannelName: "", Uuid: newUUID(), Body: messageBody})
+}
+
+//WriteStream is to write an whole file to the stream. It chucks the data using the special stream op codes.
+func (c *Client) WriteStream(channelName string, reader io.Reader) error {
+	buf := make([]byte, 32*1024)
+	c.write(&Message{Opcode: StreamStartOpcode, ChannelName: channelName, Uuid: newUUID()})
+	defer c.write(&Message{Opcode: StreamEndOpcode, ChannelName: channelName, Uuid: newUUID()})
+	for {
+		nr, err := reader.Read(buf)
+		if nr > 0 {
+			c.write(&Message{Opcode: StreamWriteOpcode, ChannelName: channelName, Uuid: newUUID(), Body: buf[0:nr]})
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (c *Client) write(message *Message) {
-	buf := new(bytes.Buffer) // probably need a bigger buffer.
-	handle := new(codec.MsgpackHandle)
-	enc := codec.NewEncoder(buf, handle)
-	if err := enc.Encode(message); err != nil {
-		log.Fatal(err) // do something else here.
+	buf, err := message.Marshal()
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	if err := c.ws.WriteMessage(websocket.BinaryMessage, buf.Bytes()); err != nil {
+	if err := c.ws.WriteMessage(websocket.BinaryMessage, buf); err != nil {
 		log.Fatal(err) // do something else here.
 	}
 
 }
 
 func (c *Client) decodeMessage() *Message {
-	_, r, err := c.ws.NextReader()
+	_, buf, err := c.ws.ReadMessage()
 	if err != nil {
-		log.Print("reader error: ", err) // do something else here.
-		return nil
+		// handle error
 	}
-	h := new(codec.MsgpackHandle)
-	dec := codec.NewDecoder(r, h)
-	var message Message
-	if err := dec.Decode(&message); err != nil {
-		log.Print("decode error: ", err) // do something else here.
-		return nil
+	message, err := Unmarshal(buf)
+	if err != nil {
+		// handle error
 	}
-	return &message
+	return message
 }
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const (
-	letterIdxBits = 6                    // 6 bits to represent a letter index
-	letterIdxMask = 1<<letterIdxBits - 1 // All 1-bits, as many as letterIdxBits
-	letterIdxMax  = 63 / letterIdxBits   // # of letter indices fitting in 63 bits
-)
-
-var src = rand.NewSource(time.Now().UnixNano())
-
-func RandStringBytesMaskImprSrc(n int) string {
-	b := make([]byte, n)
-	// A src.Int63() generates 63 random bits, enough for letterIdxMax characters!
-	for i, cache, remain := n-1, src.Int63(), letterIdxMax; i >= 0; {
-		if remain == 0 {
-			cache, remain = src.Int63(), letterIdxMax
-		}
-		if idx := int(cache & letterIdxMask); idx < len(letterBytes) {
-			b[i] = letterBytes[idx]
-			i--
-		}
-		cache >>= letterIdxBits
-		remain--
+// newUUID generates a random UUID according to RFC 4122
+func newUUID() string {
+	uuid := make([]byte, 16)
+	n, err := io.ReadFull(rand.Reader, uuid)
+	if n != len(uuid) || err != nil {
+		//do something with the error?
+		return ""
 	}
-
-	return string(b)
+	// variant bits; see section 4.1.1
+	uuid[8] = uuid[8]&^0xc0 | 0x80
+	// version 4 (pseudo-random); see section 4.1.3
+	uuid[6] = uuid[6]&^0xf0 | 0x40
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }

@@ -12,13 +12,6 @@ type ServerClient interface {
 	Start() error
 }
 
-const (
-	BindOpCode    = iota // a message to bind to a channel. This will create the channel if it does not exist.
-	UnBindOpCode         // a message to unbind from a channel.
-	WriteOpCode          // a message to be broadcast on provided channel.
-	CleanUpOpcode        // a message to cleanup a disconnected client/connection.
-)
-
 //Server is the implementation of ServerClient.
 type Server struct {
 	Port           int
@@ -26,12 +19,14 @@ type Server struct {
 	ConnectionAuth ConnectionAuthClient
 }
 
+//New takes in everything need to setup a Server and have all the interfaces implemented.
 func New(port int, deduper DeDuplication) *Server {
 	return &Server{Port: port,
 		h:              newMultiPlexHub(deduper),
 		ConnectionAuth: &SimpleAuthClient{}}
 }
 
+//Start starts the websocket server to allow connections
 func (s *Server) Start() error {
 	go s.h.RunLoop()
 

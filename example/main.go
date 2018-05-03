@@ -17,7 +17,7 @@ type user struct {
 }
 
 func main() {
-	deduper := conductor.NewDeDuper(time.Second*60, time.Second*30)
+	deduper := conductor.NewDeDuper(time.Second*10, time.Second*30)
 	server := conductor.New(8080, deduper)
 	go server.Start()
 
@@ -27,11 +27,10 @@ func main() {
 			log.Fatal(skittles.BoldRed(err))
 		}
 
-		client.BindToChannel("hello")
+		client.Bind("hello")
 		for {
 			select {
 			case message := <-client.Read:
-				//val := string(message.([]uint8))
 				var u user
 				json.Unmarshal(message.([]byte), &u)
 				fmt.Print(skittles.Cyan(u.Text))
@@ -43,7 +42,7 @@ func main() {
 	if err != nil {
 		log.Fatal(skittles.BoldRed(err))
 	}
-	client.BindToChannel("hello")
+	client.Bind("hello")
 
 	fmt.Println(skittles.BoldGreen("Starting reader..."))
 	reader := bufio.NewReader(os.Stdin)

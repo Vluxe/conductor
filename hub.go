@@ -4,14 +4,6 @@ import (
 	"fmt"
 )
 
-// Message represents the framing of the messages that get sent back and forth.
-type Message struct {
-	OpCode      int         `json:"opcode"`
-	ChannelName string      `json:"channel_name"`
-	ID          string      `json:"id"`
-	Body        interface{} `json:"body"` // don't parse the body, as it defined by the user. *codec.RawExt
-}
-
 // HubConnection is the an interface to hide the other methods of the Hub.
 // This way `Connection`s can only write to the Hub and not call its other methods.
 type HubConnection interface {
@@ -80,12 +72,12 @@ func (h *MultiPlexHub) preProcessHubData(data *hubData) {
 }
 
 func (h *MultiPlexHub) processMessage(data *hubData) {
-	switch opcode := data.message.OpCode; opcode {
-	case BindOpCode:
+	switch opcode := data.message.Opcode; opcode {
+	case BindOpcode:
 		h.bindConnectionToChannel(data)
-	case UnBindOpCode:
+	case UnbindOpcode:
 		h.unbindConnectionToChannel(data)
-	case WriteOpCode:
+	case WriteOpcode:
 		h.writeToChannel(data)
 	case CleanUpOpcode:
 		h.connectionCleanup(data)

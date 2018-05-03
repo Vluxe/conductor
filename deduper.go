@@ -40,17 +40,23 @@ func (deduper *StandardDeDuplication) Start() {
 // Add puts a timestamp in the timestamps map based on the message's ID.
 // The message will then be checked in the ticker's clean up sweep to remove the message if it is past the ttl.
 func (deduper *StandardDeDuplication) Add(message *Message) {
-	deduper.timestamps[message.ID] = time.Now()
+	if len(message.Uuid) == 0 {
+		return
+	}
+	deduper.timestamps[message.Uuid] = time.Now()
 }
 
 // Remove removes a message based on the ID of the message from the timestamp map.
 func (deduper *StandardDeDuplication) Remove(message *Message) {
-	delete(deduper.timestamps, message.ID)
+	delete(deduper.timestamps, message.Uuid)
 }
 
 // IsDuplicate checks to see if the message has a duplicate id of any of the messages stored in the timestamp map.
 func (deduper *StandardDeDuplication) IsDuplicate(message *Message) bool {
-	_, exist := deduper.timestamps[message.ID]
+	if len(message.Uuid) == 0 {
+		return false
+	}
+	_, exist := deduper.timestamps[message.Uuid]
 	return exist
 }
 

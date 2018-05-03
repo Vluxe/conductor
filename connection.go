@@ -1,12 +1,9 @@
 package conductor
 
 import (
-	"bytes"
-	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/ugorji/go/codec"
 )
 
 // Connection is the based interface for mocking a connection.
@@ -76,13 +73,11 @@ func (c *wsconnection) ReadLoop(hub HubConnection) {
 
 //Write sends the content of the message to the client.
 func (c *wsconnection) Write(message *Message) error {
-	buf := new(bytes.Buffer) // probably need a bigger buffer.
-	handle := new(codec.MsgpackHandle)
-	enc := codec.NewEncoder(buf, handle)
-	if err := enc.Encode(message); err != nil {
+	buf, err := message.Marshal()
+	if err != nil {
 		return err
 	}
-	return c.ws.WriteMessage(websocket.BinaryMessage, buf.Bytes())
+	return c.ws.WriteMessage(websocket.BinaryMessage, buf)
 }
 
 func (c *wsconnection) doTick() {
@@ -100,7 +95,7 @@ func (c *wsconnection) doTick() {
 
 func (c *wsconnection) Disconnect() {
 	c.ticker.Stop()
-	c.h.Write(c, &Message{OpCode: CleanUpOpcode, ChannelName: ""})
+	c.h.Write(c, &Message{Opcode: CleanUpOpcode, ChannelName: ""})
 	c.ws.WriteMessage(websocket.CloseMessage, nil)
 	c.ws.Close()
 }
@@ -114,17 +109,13 @@ func (c *wsconnection) SetChannels(channels []string) {
 }
 
 func (c *wsconnection) decodeMessage() *Message {
-	_, r, err := c.ws.NextReader()
+	_, buf, err := c.ws.ReadMessage()
 	if err != nil {
-		log.Print("reader error: ", err) // do something else here.
-		return nil
+		// handle error
 	}
-	h := new(codec.MsgpackHandle)
-	dec := codec.NewDecoder(r, h)
-	var message Message
-	if err := dec.Decode(&message); err != nil {
-		log.Print("decode error: ", err) // do something else here.
-		return nil
+	message, err := Unmarshal(buf)
+	if err != nil {
+		// handle error
 	}
-	return &message
+	return message
 }
