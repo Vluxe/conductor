@@ -4,6 +4,11 @@ import (
 	"fmt"
 )
 
+// ServerHubHandler is the based interface for handling one to one server message between the client and the server.
+type ServerHubHandler interface {
+	Process(conn Connection, message *Message)
+}
+
 // HubConnection is the an interface to hide the other methods of the Hub.
 // This way `Connection`s can only write to the Hub and not call its other methods.
 type HubConnection interface {
@@ -14,6 +19,7 @@ type HubConnection interface {
 type Hub interface {
 	RunLoop()                                // This is the master run loop that processes all the messages that come into the channel.
 	Write(conn Connection, message *Message) // Not sure if I like the duplicate method trick yet...
+	Auth() ConnectionAuth                    //This returns the current auther (if one is used)
 }
 
 type hubData struct {
@@ -29,14 +35,32 @@ type MultiPlexHub struct {
 	// The channel we get messages from the hub on.
 	messages chan *hubData
 
-	// The deduper to use (if any).
+	// The deduper implementation to use (if any).
 	deduper DeDuplication
+
+	// The authentication implementation to use (if any).
+	auther ConnectionAuth
+
+	// The storage implementation to use (if any).
+	storer Storage
+
+	// The server handler implementation to use (if any).
+	serverHandler ServerHubHandler
 }
 
-func newMultiPlexHub(deduper DeDuplication) *MultiPlexHub {
+func newMultiPlexHub(deduper DeDuplication, auther ConnectionAuth, storer Storage,
+	serverHandler ServerHubHandler) *MultiPlexHub {
 	return &MultiPlexHub{channels: make(map[string][]Connection),
-		messages: make(chan *hubData),
-		deduper:  deduper}
+		messages:      make(chan *hubData),
+		deduper:       deduper,
+		auther:        auther,
+		storer:        storer,
+		serverHandler: serverHandler}
+}
+
+// Auth returns the auther object for use in the server.
+func (h *MultiPlexHub) Auth() ConnectionAuth {
+	return h.auther
 }
 
 // RunLoop is the loop that runs forever processing messages from connections.
@@ -60,7 +84,7 @@ func (h *MultiPlexHub) Write(conn Connection, message *Message) {
 }
 
 func (h *MultiPlexHub) preProcessHubData(data *hubData) {
-	// validated message is legit here (it has a proper op code, id, etc)
+	// TODO: validated message is legit here (it has a proper op code, id, etc)
 	if h.deduper != nil {
 		if !h.deduper.IsDuplicate(data.message) {
 			h.deduper.Add(data.message)
@@ -81,12 +105,17 @@ func (h *MultiPlexHub) processMessage(data *hubData) {
 		h.writeToChannel(data)
 	case CleanUpOpcode:
 		h.connectionCleanup(data)
+	case ServerOpcode:
+		h.serverMessage(data)
 	default:
 		break
 	}
 }
 
 func (h *MultiPlexHub) bindConnectionToChannel(data *hubData) {
+	if h.auther != nil && !h.auther.CanBind(data.conn, data.message) {
+		return //no bind access!
+	}
 	connections := h.channels[data.message.ChannelName]
 	connections = append(connections, data.conn)
 	h.channels[data.message.ChannelName] = connections
@@ -104,6 +133,12 @@ func (h *MultiPlexHub) unbindConnectionToChannel(data *hubData) {
 }
 
 func (h *MultiPlexHub) writeToChannel(data *hubData) {
+	if h.auther != nil && !h.auther.CanWrite(data.conn, data.message) {
+		return //no write access!
+	}
+	if h.storer != nil {
+		h.storer.Store(data.conn, data.message)
+	}
 	connections := h.channels[data.message.ChannelName]
 	for _, conn := range connections {
 		if data.conn == conn {
@@ -130,5 +165,11 @@ func (h *MultiPlexHub) removeConnection(channelName string, c Connection) {
 			h.channels[channelName] = connections
 			break
 		}
+	}
+}
+
+func (h *MultiPlexHub) serverMessage(data *hubData) {
+	if h.serverHandler != nil {
+		h.serverHandler.Process(data.conn, data.message)
 	}
 }

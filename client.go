@@ -27,7 +27,7 @@ type Client struct {
 	// the underlining  websocket connection we need to hold on it.
 	ws *websocket.Conn
 
-	Read <-chan interface{}
+	Read <-chan *Message
 }
 
 // NewClient allocates and returns a new channel
@@ -51,17 +51,20 @@ func NewClient(serverURL string) (*Client, error) {
 		return nil, err
 	}
 
-	channel := make(chan interface{})
+	channel := make(chan *Message)
 	c := &Client{ws: ws, url: u, headers: header, Read: channel}
 
 	go func() {
 		for {
 			message := c.decodeMessage()
+			fmt.Println("message channel name: ", message.ChannelName)
 			if message == nil {
+				fmt.Println("failed to decode message")
 				c.ws.Close()
 				break
 			} else {
-				channel <- message.Body
+				fmt.Println("write to go channel:", message.Opcode)
+				channel <- message
 			}
 		}
 	}()

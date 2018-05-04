@@ -16,9 +16,26 @@ type user struct {
 	Text string `json:"text"`
 }
 
+type serverReq struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+type serverResp struct {
+	Type  string `json:"type"`
+	Count string `json:"count"`
+}
+
+type serverHandler struct {
+	storer *conductor.SimpleStorage
+}
+
 func main() {
 	deduper := conductor.NewDeDuper(time.Second*10, time.Second*30)
-	server := conductor.New(8080, deduper)
+	auther := conductor.NewSimpleAuth()
+	storer := conductor.NewSimpleStorage(100)
+	handler := &serverHandler{storer: storer}
+	server := conductor.New(8080, deduper, auther, storer, handler)
 	go server.Start()
 
 	go func() {
@@ -31,9 +48,23 @@ func main() {
 		for {
 			select {
 			case message := <-client.Read:
-				var u user
-				json.Unmarshal(message.([]byte), &u)
-				fmt.Print(skittles.Cyan(u.Text))
+				fmt.Println("op code is: ", message.Opcode)
+				switch opcode := message.Opcode; opcode {
+				case conductor.WriteOpcode:
+					fmt.Println("write code")
+					var u user
+					json.Unmarshal(message.Body, &u)
+					fmt.Print(skittles.Cyan(u.Text))
+				case conductor.ServerOpcode:
+					fmt.Println("server code")
+					var resp serverResp
+					json.Unmarshal(message.Body, &resp)
+					fmt.Print(skittles.Cyan("message history count: " + resp.Count))
+				default:
+					fmt.Println("no clue code")
+					break
+				}
+
 			}
 		}
 	}()
@@ -46,6 +77,7 @@ func main() {
 
 	fmt.Println(skittles.BoldGreen("Starting reader..."))
 	reader := bufio.NewReader(os.Stdin)
+	i := 0
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -55,5 +87,26 @@ func main() {
 		u := user{Text: line}
 		b, _ := json.Marshal(u)
 		client.Write("hello", b)
+		i++
+		if i%2 == 0 {
+			u := serverReq{Type: "history", Name: "hello"}
+			b, _ := json.Marshal(u)
+			client.ServerMessage(b)
+		}
 	}
+}
+
+func (s *serverHandler) Process(conn conductor.Connection, message *conductor.Message) {
+	//fmt.Println("got a server message!")
+	// var req serverReq
+	// json.Unmarshal(message.Body, &req)
+	// //fmt.Println("type: " + req.Type)
+	// if req.Type == "history" {
+	// 	messages := s.storer.Get(req.Name)
+	// 	count := strconv.Itoa(len(messages))
+	// 	//fmt.Println("count: " + count)
+	// 	resp := serverResp{Type: "history", Count: count}
+	// 	b, _ := json.Marshal(resp)
+	// 	conn.Write(&conductor.Message{Opcode: conductor.ServerOpcode, ChannelName: "", Body: b})
+	// }
 }

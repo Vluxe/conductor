@@ -9,10 +9,12 @@ import (
 // Connection is the based interface for mocking a connection.
 type Connection interface {
 	Write(message *Message) error // Write is to send a message to the client this connection represents.
-	ReadLoop(hub HubConnection)   // ReadLoop is the loop that keeps this connection alive. This is where read messages go.
+	ReadLoop(hub HubConnection)   // ReadLoop is the loop that keeps this connection alive. Don't call this.
 	Disconnect()                  // Disconnect is use to disconnect the connection.
 	Channels() []string
 	SetChannels(channels []string)
+	Store(key, value string) //Store is a map of local storage for the connection. This way you can identify the connection in other interfaces.
+	Get(key string) string   //Get is a map of local storage for the connection.
 }
 
 const (
@@ -26,7 +28,7 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Maximum message size allowed from peer.
-	maxMessageSize = 512 * 500 // Don't leave me like this!!
+	maxMessageSize = 512 * 500 //TODO: Don't leave me like this!!
 )
 
 //WSConnection is the default websocket implementation.
@@ -42,6 +44,9 @@ type wsconnection struct {
 
 	// maintain a list of channels this client is bound to. (useful for clean up.)
 	channels []string
+
+	// maintain a map of content for the connection (like an auth token so the connection can be associated to a user).
+	storage map[string]string
 }
 
 // newWSConnection creates a new wsconnection object using the gorilla websocket.Conn as the underlying transport.
@@ -69,6 +74,16 @@ func (c *wsconnection) ReadLoop(hub HubConnection) {
 			hub.Write(c, mess)
 		}
 	}
+}
+
+//Store puts something into the local storage of this connection.
+func (c *wsconnection) Store(key, value string) {
+	c.storage[key] = value
+}
+
+//Gets get the value out local storage of this connection.
+func (c *wsconnection) Get(key string) string {
+	return c.storage[key]
 }
 
 //Write sends the content of the message to the client.
@@ -111,11 +126,11 @@ func (c *wsconnection) SetChannels(channels []string) {
 func (c *wsconnection) decodeMessage() *Message {
 	_, buf, err := c.ws.ReadMessage()
 	if err != nil {
-		// handle error
+		//TODO: handle error
 	}
 	message, err := Unmarshal(buf)
 	if err != nil {
-		// handle error
+		//TODO: handle error
 	}
 	return message
 }

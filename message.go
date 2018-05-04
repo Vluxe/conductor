@@ -11,9 +11,9 @@ const (
 	WriteOpcode              // WriteOpcode broadcasts on provided channel.
 	ServerOpcode             // ServerOpcode intend to be between a single client and the server (not broadcasted).
 	CleanUpOpcode            // a message to cleanup a disconnected client/connection.
-	StreamStartOpcode        // a message to start streaming chucks of data (like a file)
-	StreamEndOpcode          // a mess
-	StreamWriteOpcode        //TBD
+	StreamStartOpcode        // StreamStartOpcode signifies the start of a stream of a file
+	StreamEndOpcode          // StreamEndOpcode signifies the end of a stream of a file
+	StreamWriteOpcode        //StreamWriteOpcode signifies the write (a chunk) of a file
 )
 
 // Message represents the framing of the messages that get sent back and forth.
