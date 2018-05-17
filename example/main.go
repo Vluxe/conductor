@@ -36,7 +36,7 @@ func main() {
 	storer := conductor.NewSimpleStorage(100)
 	handler := &serverHandler{storer: storer}
 	server := conductor.New(8080, deduper, auther, storer, handler)
-	go server.Start()
+	go server.Start(true)
 
 	go func() {
 		client, err := conductor.NewClient("ws://localhost:8080")
@@ -48,10 +48,8 @@ func main() {
 		for {
 			select {
 			case message := <-client.Read:
-				fmt.Println("op code is: ", message.Opcode)
 				switch opcode := message.Opcode; opcode {
 				case conductor.WriteOpcode:
-					fmt.Println("write code")
 					var u user
 					json.Unmarshal(message.Body, &u)
 					fmt.Print(skittles.Cyan(u.Text))
@@ -77,7 +75,7 @@ func main() {
 
 	fmt.Println(skittles.BoldGreen("Starting reader..."))
 	reader := bufio.NewReader(os.Stdin)
-	i := 0
+	//i := 0
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -87,12 +85,12 @@ func main() {
 		u := user{Text: line}
 		b, _ := json.Marshal(u)
 		client.Write("hello", b)
-		i++
-		if i%2 == 0 {
-			u := serverReq{Type: "history", Name: "hello"}
-			b, _ := json.Marshal(u)
-			client.ServerMessage(b)
-		}
+		// i++
+		// if i%2 == 0 {
+		// 	u := serverReq{Type: "history", Name: "hello"}
+		// 	b, _ := json.Marshal(u)
+		// 	client.ServerMessage(b)
+		// }
 	}
 }
 

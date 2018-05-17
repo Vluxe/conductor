@@ -57,13 +57,11 @@ func NewClient(serverURL string) (*Client, error) {
 	go func() {
 		for {
 			message := c.decodeMessage()
-			fmt.Println("message channel name: ", message.ChannelName)
 			if message == nil {
 				fmt.Println("failed to decode message")
 				c.ws.Close()
 				break
 			} else {
-				fmt.Println("write to go channel:", message.Opcode)
 				channel <- message
 			}
 		}
