@@ -48,20 +48,16 @@ func main() {
 		for {
 			select {
 			case message := <-client.Read:
-				fmt.Println("op code is: ", message.Opcode)
 				switch opcode := message.Opcode; opcode {
 				case conductor.WriteOpcode:
-					fmt.Println("write code")
 					var u user
 					json.Unmarshal(message.Body, &u)
 					fmt.Print(skittles.Cyan(u.Text))
 				case conductor.ServerOpcode:
-					fmt.Println("server code")
 					var resp serverResp
 					json.Unmarshal(message.Body, &resp)
 					fmt.Print(skittles.Cyan("message history count: " + resp.Count))
 				default:
-					fmt.Println("no clue code")
 					break
 				}
 

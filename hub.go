@@ -19,7 +19,9 @@ type HubConnection interface {
 type Hub interface {
 	RunLoop()                                // This is the master run loop that processes all the messages that come into the channel.
 	Write(conn Connection, message *Message) // Not sure if I like the duplicate method trick yet...
-	Auth() ConnectionAuth                    //This returns the current auther (if one is used)
+	Auth() ConnectionAuth                    // This returns the current auther (if one is used)
+	RegisterSister(conn Connection)          // Register a sister hub into this hub
+	ReceivedSisterMessage()
 }
 
 type hubData struct {
@@ -81,6 +83,14 @@ func (h *MultiPlexHub) RunLoop() {
 // Write is the implementation of HubConnection. This way clients can write messages to the hub without being able to call RunLoop.
 func (h *MultiPlexHub) Write(conn Connection, message *Message) {
 	h.messages <- &hubData{conn: conn, message: message}
+}
+
+func (h *MultiPlexHub) RegisterSister(conn Connection) {
+	//regsiter this connection as another hub to message
+}
+
+func (h *MultiPlexHub) ReceivedSisterMessage() {
+	//send through our hub...
 }
 
 func (h *MultiPlexHub) preProcessHubData(data *hubData) {
@@ -148,6 +158,7 @@ func (h *MultiPlexHub) writeToChannel(data *hubData) {
 			fmt.Println(err) // do something else here.
 		}
 	}
+	//message other hubs here....
 
 }
 
