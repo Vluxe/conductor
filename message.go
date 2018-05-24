@@ -13,7 +13,7 @@ const (
 	CleanUpOpcode            // a message to cleanup a disconnected client/connection.
 	StreamStartOpcode        // StreamStartOpcode signifies the start of a stream of a file
 	StreamEndOpcode          // StreamEndOpcode signifies the end of a stream of a file
-	StreamWriteOpcode        //StreamWriteOpcode signifies the write (a chunk) of a file
+	StreamWriteOpcode        // StreamWriteOpcode signifies the write (a chunk) of a file
 )
 
 // Message represents the framing of the messages that get sent back and forth.
@@ -22,8 +22,8 @@ type Message struct {
 	uuidSize    uint16 `json:"uuid_size"`
 	Uuid        string `json:"uuid"`
 	nameSize    uint16 `json:"name_size"`
-	ChannelName string `json:"stream_name"`
-	bodySize    uint64 `json:"body_size"`
+	ChannelName string `json:"channel_name"`
+	bodySize    uint32 `json:"body_size"`
 	Body        []byte `json:"body"`
 }
 
@@ -50,7 +50,7 @@ func (m *Message) Marshal() ([]byte, error) {
 		return []byte(""), err
 	}
 
-	m.bodySize = uint64(len(m.Body))
+	m.bodySize = uint32(len(m.Body))
 	if err := binary.Write(buf, binary.LittleEndian, m.bodySize); err != nil {
 		return []byte(""), err
 	}
