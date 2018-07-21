@@ -35,7 +35,8 @@ func main() {
 	auther := conductor.NewSimpleAuth()
 	storer := conductor.NewSimpleStorage(100)
 	handler := &serverHandler{storer: storer}
-	server := conductor.New(8080, deduper, auther, storer, handler)
+	sister := conductor.NewSisterManager()
+	server := conductor.New(8080, deduper, auther, storer, handler, sister)
 	go server.Start(true)
 
 	go func() {

@@ -38,7 +38,7 @@ type metaResponse struct {
 
 // NewSisterManager is used to create a new SimpleMaxSisterManager
 func NewSisterManager() *SimpleMaxSisterManager {
-	return &SimpleMaxSisterManager{possibleSisters: make([]SisterClient, 1), connectedSisters: make([]SisterClient, 1)}
+	return &SimpleMaxSisterManager{possibleSisters: []SisterClient{}, connectedSisters: []SisterClient{}}
 }
 
 // Start builds a list of servers using a discovery protocol or service (like consult).
