@@ -2,18 +2,23 @@ package conductor
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/binary"
+	"fmt"
+	"io"
 )
 
 const (
-	BindOpcode        = iota // BindOpcode bind to a channel. This will create the channel if it does not exist.
-	UnbindOpcode             // UnbindOpcode unbind from a channel.
-	WriteOpcode              // WriteOpcode broadcasts on provided channel.
-	ServerOpcode             // ServerOpcode intend to be between a single client and the server (not broadcasted).
-	CleanUpOpcode            // a message to cleanup a disconnected client/connection.
-	StreamStartOpcode        // StreamStartOpcode signifies the start of a stream of a file
-	StreamEndOpcode          // StreamEndOpcode signifies the end of a stream of a file
-	StreamWriteOpcode        // StreamWriteOpcode signifies the write (a chunk) of a file
+	BindOpcode              = iota // BindOpcode bind to a channel. This will create the channel if it does not exist.
+	UnbindOpcode                   // UnbindOpcode unbind from a channel.
+	WriteOpcode                    // WriteOpcode broadcasts on provided channel.
+	ServerOpcode                   // ServerOpcode intend to be between a single client and the server (not broadcasted).
+	CleanUpOpcode                  // a message to cleanup a disconnected client/connection.
+	StreamStartOpcode              // StreamStartOpcode signifies the start of a stream of a file
+	StreamEndOpcode                // StreamEndOpcode signifies the end of a stream of a file
+	StreamWriteOpcode              // StreamWriteOpcode signifies the write (a chunk) of a file
+	MetaQueryOpcode                // MetaQueryOpcode is for sister servers to query meta data from each other
+	MetaQueryResponseOpcode        // MetaQueryResponseOpcode is to respond to a meta query
 )
 
 // Message represents the framing of the messages that get sent back and forth.
@@ -97,4 +102,19 @@ func readString(buf *bytes.Buffer) (string, uint16, error) {
 	str := make([]byte, size)
 	buf.Read(str)
 	return string(str), size, nil
+}
+
+// newUUID generates a random UUID according to RFC 4122
+func newUUID() string {
+	uuid := make([]byte, 16)
+	n, err := io.ReadFull(rand.Reader, uuid)
+	if n != len(uuid) || err != nil {
+		//do something with the error?
+		return ""
+	}
+	// variant bits; see section 4.1.1
+	uuid[8] = uuid[8]&^0xc0 | 0x80
+	// version 4 (pseudo-random); see section 4.1.3
+	uuid[6] = uuid[6]&^0xf0 | 0x40
+	return fmt.Sprintf("%x-%x-%x-%x-%x", uuid[0:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
 }

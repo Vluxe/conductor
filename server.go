@@ -10,6 +10,7 @@ import (
 // ServerClient is the based interface for mocking.
 type ServerClient interface {
 	Start(useHTTPServer bool) error
+	AddSister(sister SisterClient) error
 }
 
 // Server is the implementation of ServerClient.
@@ -27,9 +28,10 @@ type Server struct {
 // auther is the ConnectionAuth interface to use for auth.
 // storer is the Storage interface to use message storage.
 // serverHandler is the ServerHubHandler interface to use for one to one operations.
-func New(port int, deduper DeDuplication, auther ConnectionAuth, storer Storage, serverHandler ServerHubHandler) *Server {
+// sisterManager is the SisterManager interface to use for handling federation.
+func New(port int, deduper DeDuplication, auther ConnectionAuth, storer Storage, serverHandler ServerHubHandler, sisterManager SisterManager) *Server {
 	return &Server{Port: port,
-		h: newMultiPlexHub(deduper, auther, storer, serverHandler)}
+		h: newMultiPlexHub(deduper, auther, storer, serverHandler, sisterManager)}
 }
 
 //Start starts the websocket server to allow connections.
@@ -42,10 +44,20 @@ func (s *Server) Start(useHTTPServer bool) error {
 		// need a better TLS listener. This is really basic.
 		if s.CertName != "" && s.KeyName != "" {
 			return http.ListenAndServeTLS(fmt.Sprintf(":%d", s.Port), s.CertName, s.KeyName, s.Router)
-		} else {
-			return http.ListenAndServe(fmt.Sprintf(":%d", s.Port), s.Router)
 		}
+		return http.ListenAndServe(fmt.Sprintf(":%d", s.Port), s.Router)
 	}
+	return nil
+}
+
+//AddSister adds a sister server to use for federation.
+// It sends and receives messages to the other server.
+func (s *Server) AddSister(sister SisterClient) error {
+	if err := sister.Connect(s.h); err != nil {
+		return err
+	}
+	s.h.SisterManager().addSister(sister)
+	go sister.ReadLoop(s.h)
 	return nil
 }
 
@@ -70,10 +82,16 @@ func (s *Server) WebsocketHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to upgrade", 500)
 		return
 	}
-
-	c := newWSConnection(ws, s.h)
+	isSister := s.h.Auth().IsSister(r)
+	c := newWSConnection(ws, s.h, isSister)
 	if s.h.Auth() != nil {
 		s.h.Auth().ConnToRequest(r, c)
 	}
+	if isSister && s.h.SisterManager() != nil {
+		s.h.SisterManager().SisterConnected(c)
+	}
 	c.ReadLoop(s.h)
+	if isSister && s.h.SisterManager() != nil {
+		s.h.SisterManager().SisterDisconnected(c)
+	}
 }

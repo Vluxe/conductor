@@ -15,7 +15,8 @@ type DeDuplication interface {
 
 // StandardDeDuplication is the default implmentation of DeDuplication.
 // It works by holding the message in memory for a period of time waiting to see if a duplication will arrive.
-// If durablity is enabled for the message it will be removed as soon as a message is fin'ed.
+// If "durablity" is enabled for the message it will be removed as soon as a message is fin'ed. - Might not do this...
+// TODO: look at possible race condition with the timestamps map...
 type StandardDeDuplication struct {
 	timestamps map[string]time.Time
 	ttl        time.Duration //ttl is Time To Live in the timestamp list. A good default value for this is X seconds.

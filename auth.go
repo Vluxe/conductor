@@ -13,6 +13,7 @@ type ConnectionAuth interface {
 	ConnToRequest(r *http.Request, conn Connection)  // ConnToRequest is called so you can map your HTTP request (like the auth token) to a current connection.
 	CanBind(conn Connection, message *Message) bool  // CanBind is called on every bind request, so optimizing it is highly recommended.
 	CanWrite(conn Connection, message *Message) bool // CanWrite is called on every write request, so optimizing it is highly recommended.
+	IsSister(r *http.Request) bool                   // IsSister is called on every HTTP upgrade request and should be used to check if an incoming connection is from a sister node or not.
 }
 
 // SimpleAuth is the default implmentation of ConnectionAuth.
@@ -55,6 +56,18 @@ func (s *SimpleAuth) CanWrite(conn Connection, message *Message) bool {
 		if channel == message.ChannelName {
 			return true
 		}
+	}
+	return false
+}
+
+// IsSister should check if a connection is a sister node or not.
+// This example just looks for the header is_sister and respects that.
+// This should be a much more robust check in production.
+// TODO: This needs an offer/answer setup to ensure security
+func (s *SimpleAuth) IsSister(r *http.Request) bool {
+	check := r.Header.Get("is_sister")
+	if check == "true" {
+		return true
 	}
 	return false
 }

@@ -13,20 +13,22 @@ type ServerHubHandler interface {
 // This way `Connection`s can only write to the Hub and not call its other methods.
 type HubConnection interface {
 	Write(conn Connection, message *Message)
+	ReceivedSisterMessage(conn Connection, message *Message)
 }
 
 // Hub is the based interface for what methods aHub should provide.
 type Hub interface {
-	RunLoop()                                // This is the master run loop that processes all the messages that come into the channel.
-	Write(conn Connection, message *Message) // Not sure if I like the duplicate method trick yet...
-	Auth() ConnectionAuth                    // This returns the current auther (if one is used)
-	RegisterSister(conn Connection)          // Register a sister hub into this hub
-	ReceivedSisterMessage()
+	RunLoop()                                                // This is the master run loop that processes all the messages that come into the channel.
+	Write(conn Connection, message *Message)                 // Not sure if I like the duplicate method trick yet...
+	Auth() ConnectionAuth                                    // This returns the current auther (if one is used)
+	SisterManager() SisterManager                            // This returns the current sister manager (if one is used)
+	ReceivedSisterMessage(conn Connection, message *Message) // Handle a sister message into this hub
 }
 
 type hubData struct {
-	conn    Connection
-	message *Message
+	conn     Connection
+	message  *Message
+	isSister bool
 }
 
 // MultiPlexHub is the standard hub that handles interaction between clients and other hubs.
@@ -48,21 +50,30 @@ type MultiPlexHub struct {
 
 	// The server handler implementation to use (if any).
 	serverHandler ServerHubHandler
+
+	// The sisters registered with the hub
+	sisterManager SisterManager
 }
 
 func newMultiPlexHub(deduper DeDuplication, auther ConnectionAuth, storer Storage,
-	serverHandler ServerHubHandler) *MultiPlexHub {
+	serverHandler ServerHubHandler, sisterManager SisterManager) *MultiPlexHub {
 	return &MultiPlexHub{channels: make(map[string][]Connection),
 		messages:      make(chan *hubData),
 		deduper:       deduper,
 		auther:        auther,
 		storer:        storer,
-		serverHandler: serverHandler}
+		serverHandler: serverHandler,
+		sisterManager: sisterManager}
 }
 
 // Auth returns the auther object for use in the server.
 func (h *MultiPlexHub) Auth() ConnectionAuth {
 	return h.auther
+}
+
+// SisterManager returns the auther object for use in the server.
+func (h *MultiPlexHub) SisterManager() SisterManager {
+	return h.sisterManager
 }
 
 // RunLoop is the loop that runs forever processing messages from connections.
@@ -82,15 +93,12 @@ func (h *MultiPlexHub) RunLoop() {
 
 // Write is the implementation of HubConnection. This way clients can write messages to the hub without being able to call RunLoop.
 func (h *MultiPlexHub) Write(conn Connection, message *Message) {
-	h.messages <- &hubData{conn: conn, message: message}
+	h.messages <- &hubData{conn: conn, message: message, isSister: false}
 }
 
-func (h *MultiPlexHub) RegisterSister(conn Connection) {
-	//regsiter this connection as another hub to message
-}
-
-func (h *MultiPlexHub) ReceivedSisterMessage() {
-	//send through our hub...
+// ReceivedSisterMessage is just like Write, expect it sets the isSister flag.
+func (h *MultiPlexHub) ReceivedSisterMessage(conn Connection, message *Message) {
+	h.messages <- &hubData{conn: conn, message: message, isSister: true}
 }
 
 func (h *MultiPlexHub) preProcessHubData(data *hubData) {
@@ -117,6 +125,10 @@ func (h *MultiPlexHub) processMessage(data *hubData) {
 		h.connectionCleanup(data)
 	case ServerOpcode:
 		h.serverMessage(data)
+	case MetaQueryOpcode:
+		h.metaQueryMessage(data)
+	case MetaQueryResponseOpcode:
+		h.handleMetaQueryResponse(data)
 	default:
 		break
 	}
@@ -143,23 +155,30 @@ func (h *MultiPlexHub) unbindConnectionToChannel(data *hubData) {
 }
 
 func (h *MultiPlexHub) writeToChannel(data *hubData) {
-	if h.auther != nil && !h.auther.CanWrite(data.conn, data.message) {
-		return //no write access!
+	if !data.isSister {
+		if h.auther != nil && !h.auther.CanWrite(data.conn, data.message) {
+			fmt.Println("blocked unautherized message")
+			return //no write access!
+		}
+		if h.storer != nil {
+			h.storer.Store(data.conn, data.message)
+		}
 	}
-	if h.storer != nil {
-		h.storer.Store(data.conn, data.message)
-	}
+
+	//send the message to our local clients on this channel
 	connections := h.channels[data.message.ChannelName]
 	for _, conn := range connections {
 		if data.conn == conn {
 			continue
 		}
 		if err := conn.Write(data.message); err != nil {
-			fmt.Println(err) // do something else here.
+			fmt.Println(err) // TODO: do something else here.
 		}
 	}
-	//message other hubs here....
-
+	//send the message to the sister servers
+	if h.sisterManager != nil {
+		h.sisterManager.Write(data.message)
+	}
 }
 
 func (h *MultiPlexHub) connectionCleanup(data *hubData) {
@@ -182,5 +201,18 @@ func (h *MultiPlexHub) removeConnection(channelName string, c Connection) {
 func (h *MultiPlexHub) serverMessage(data *hubData) {
 	if h.serverHandler != nil {
 		h.serverHandler.Process(data.conn, data.message)
+	}
+}
+
+func (h *MultiPlexHub) metaQueryMessage(data *hubData) {
+	if h.sisterManager != nil {
+		b := h.sisterManager.MetaQueryResponse()
+		data.conn.Write(&Message{Opcode: MetaQueryResponseOpcode, ChannelName: "", Uuid: newUUID(), Body: b})
+	}
+}
+
+func (h *MultiPlexHub) handleMetaQueryResponse(data *hubData) {
+	if h.sisterManager != nil {
+		h.sisterManager.HandleMetaQueryResponse(data.message.Body)
 	}
 }

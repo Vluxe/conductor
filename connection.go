@@ -8,13 +8,13 @@ import (
 
 // Connection is the based interface for mocking a connection.
 type Connection interface {
-	Write(message *Message) error // Write is to send a message to the client this connection represents.
-	ReadLoop(hub HubConnection)   // ReadLoop is the loop that keeps this connection alive. Don't call this.
-	Disconnect()                  // Disconnect is use to disconnect the connection.
-	Channels() []string
-	SetChannels(channels []string)
-	Store(key, value string) //Store is a map of local storage for the connection. This way you can identify the connection in other interfaces.
-	Get(key string) string   //Get is a map of local storage for the connection.
+	Write(message *Message) error  // Write is to send a message to the client this connection represents.
+	ReadLoop(hub HubConnection)    // ReadLoop is the loop that keeps this connection alive. Don't call this.
+	Disconnect()                   // Disconnect is use to disconnect the connection.
+	Channels() []string            // Channels is to hold the channels this connection is bound to. Very useful for auth and cleanup.
+	SetChannels(channels []string) // Update the channel list of this connection.
+	Store(key, value string)       // Store is a map of local storage for the connection. This way you can identify the connection in other interfaces.
+	Get(key string) string         // Get is a map of local storage for the connection.
 }
 
 const (
@@ -47,12 +47,16 @@ type wsconnection struct {
 
 	// maintain a map of content for the connection (like an auth token so the connection can be associated to a user).
 	storage map[string]string
+
+	// is this a connection used for sister federation between servers?
+	isSister bool
 }
 
 // newWSConnection creates a new wsconnection object using the gorilla websocket.Conn as the underlying transport.
 // HubConnection is also provided to have a simple way to write to the hub without having the hubs runloop methods.
-func newWSConnection(ws *websocket.Conn, h HubConnection) *wsconnection {
-	return &wsconnection{ws: ws, h: h, channels: make([]string, 1), ticker: time.NewTicker(pingPeriod)}
+func newWSConnection(ws *websocket.Conn, h HubConnection, isSister bool) *wsconnection {
+	return &wsconnection{ws: ws, h: h, channels: make([]string, 1), ticker: time.NewTicker(pingPeriod),
+		isSister: isSister, storage: make(map[string]string)}
 }
 
 // ReadLoop sets up the websocket reader in a loop to handle messages and forward them to the hub as they come in
@@ -71,7 +75,11 @@ func (c *wsconnection) ReadLoop(hub HubConnection) {
 			c.Disconnect()
 			break
 		} else {
-			hub.Write(c, mess)
+			if c.isSister {
+				hub.ReceivedSisterMessage(c, mess)
+			} else {
+				hub.Write(c, mess)
+			}
 		}
 	}
 }
