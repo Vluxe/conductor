@@ -1,179 +1,130 @@
-// Copyright 2014 The Conductor Authors. All rights reserved.
-// Conductor under Apache v2. License can be found in the LICENSE file.
-
 package conductor
 
 import (
-	"encoding/json"
-	"github.com/gorilla/websocket"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
-	kAllMessages = "*"
-	bufferSize   = 1024
+	bufferSize = 1024
 )
 
-// A Client is basic websocket connection.
+//Client is basic websocket connection.
 type Client struct {
-	url           *url.URL    //store this for reconnect
-	headers       http.Header //store this for reconnect
-	conn          *websocket.Conn
-	isConnected   bool
-	channels      map[string]func(Message)
-	serverChannel func(Message)
-	isPeer        bool
+	// we hold on to the url for when/if we need to reconnect.
+	url *url.URL
+
+	// we hold on to the headers for reconnecting as well.
+	headers http.Header
+
+	// the underlining  websocket connection we need to hold on it.
+	ws *websocket.Conn
+
+	Read <-chan *Message
 }
 
-// CreateClient allocates and returns a new Client connection.
-// ServerUrl is the server url to connect to. authToken is
-// your authentication token. peerName if you are connecting to a peer. Normally just a blank string.
-func CreateClient(serverUrl, authToken, peerName string) (Client, error) {
-	u, err := url.Parse(serverUrl)
+// NewClient allocates and returns a new channel
+// ServerUrl is the server url to connect to.
+func NewClient(serverURL string) (*Client, error) {
+	u, err := url.Parse(serverURL)
 	if err != nil {
-		return Client{}, err
+		return nil, err
 	}
 
-	websocketProtocol := "chat, superchat"
 	header := make(http.Header)
-	header.Add("Sec-WebSocket-Protocol", websocketProtocol)
+	header.Add("Sec-WebSocket-Protocol", "chat, superchat")
 	header.Add("Origin", u.String())
-	isPeer := false
-	if peerName != "" {
-		header.Add("Peer", peerName)
-		header.Add("Token", hashToken(authToken))
-		isPeer = true
-	} else {
-		header.Add("Token", authToken)
-	}
 
 	conn, err := net.Dial("tcp", u.Host)
 	if err != nil {
-		return Client{}, err
+		return nil, err
 	}
-	webConn, _, err := websocket.NewClient(conn, u, header, bufferSize, bufferSize)
+	ws, _, err := websocket.NewClient(conn, u, header, bufferSize, bufferSize)
 	if err != nil {
-		return Client{}, err
+		return nil, err
 	}
-	c := Client{conn: webConn, url: u, headers: header, channels: make(map[string]func(Message))}
-	c.isConnected = true
-	c.isPeer = isPeer
+
+	channel := make(chan *Message)
+	c := &Client{ws: ws, url: u, headers: header, Read: channel}
+
+	go func() {
+		for {
+			message := c.decodeMessage()
+			if message == nil {
+				c.ws.Close()
+				break
+			} else {
+				channel <- message
+			}
+		}
+	}()
+
 	return c, nil
 }
 
-//Bind to a channel by its name and get messages from it
-func (client *Client) Bind(channelName string, messages func(Message)) {
-	client.channels[channelName] = messages
-	if channelName != kAllMessages {
-		client.Write("", channelName, BindOpCode, nil)
-	}
+//Bind is used to send a bind request to a channel
+func (c *Client) Bind(channelName string) {
+	c.write(&Message{Opcode: BindOpcode, ChannelName: channelName, Uuid: newUUID()})
 }
 
-//Unbind from a channel by its name and stop getting messages from it
-func (client *Client) Unbind(channelName string) {
-	delete(client.channels, channelName)
-	if channelName != kAllMessages {
-		client.Write("", channelName, UnBindOpCode, nil)
-	}
+//Unbind is used to send an unbind request to a channel
+func (c *Client) Unbind(channelName string) {
+	c.write(&Message{Opcode: UnbindOpcode, ChannelName: channelName, Uuid: newUUID()})
 }
 
-//Bind to the "server channel" and get messages that are from of the server opcode
-func (client *Client) ServerBind(messages func(Message)) {
-	client.serverChannel = messages
+//Write to send a message to a channel
+func (c *Client) Write(channelName string, messageBody []byte) {
+	c.write(&Message{Opcode: WriteOpcode, ChannelName: channelName, Uuid: newUUID(), Body: messageBody})
 }
 
-//UnBind to the "server channel" and stop getting messages that are of the server opcode
-func (client *Client) ServerUnbind() {
-	client.serverChannel = nil
+//ServerMessage sends a message to the server for server operations (like getting message history or something)
+func (c *Client) ServerMessage(messageBody []byte) {
+	c.write(&Message{Opcode: ServerOpcode, ChannelName: "", Uuid: newUUID(), Body: messageBody})
 }
 
-//send a message to a channel with the write opcode
-func (client *Client) SendMessage(body, channelName string, additional interface{}) {
-	client.Write(body, channelName, WriteOpCode, additional)
-}
-
-//send a message to a channel with the info opcode
-func (client *Client) SendInfo(body, channelName string, additional interface{}) {
-	client.Write(body, channelName, InfoOpCode, additional)
-}
-
-//send a invite to a channel to a user
-func (client *Client) SendInvite(name, channelName string, additional interface{}) {
-	client.Write(name, channelName, InviteOpCode, additional)
-}
-
-//send a message to a channel with the server opcode.
-//note that channelName is optional in this case and is only used for context.
-func (client *Client) SendServerMessage(body, channelName string, additional interface{}) {
-	client.Write(body, channelName, ServerOpCode, additional)
-}
-
-//writes a message to the websocket
-func (client *Client) Write(body, channelName string, opcode int, additional interface{}) error {
-	//write a message to the socket
-	msg := Message{Body: body, ChannelName: channelName, OpCode: opcode, Additional: additional}
-	buffer, err := json.Marshal(msg)
-	client.conn.WriteMessage(websocket.TextMessage, buffer)
-	return err
-}
-
-//read loop to listen for messages
-func (client *Client) ReadLoop() {
-	for client.isConnected {
-		var message Message
-		err := client.conn.ReadJSON(&message)
-		if err != nil {
-			client.Disconnect()
-			//need to do notify that an error has occurred
-			return
+//WriteStream is to write an whole file to the stream. It chucks the data using the special stream op codes.
+func (c *Client) WriteStream(channelName string, reader io.Reader) error {
+	buf := make([]byte, 32*1024)
+	c.write(&Message{Opcode: StreamStartOpcode, ChannelName: channelName, Uuid: newUUID()})
+	defer c.write(&Message{Opcode: StreamEndOpcode, ChannelName: channelName, Uuid: newUUID()})
+	for {
+		nr, err := reader.Read(buf)
+		if nr > 0 {
+			c.write(&Message{Opcode: StreamWriteOpcode, ChannelName: channelName, Uuid: newUUID(), Body: buf[0:nr]})
 		}
-		if client.isPeer && client.serverChannel != nil {
-			client.serverChannel(message)
-		} else {
-			//process the message
-			if message.OpCode == ServerOpCode || message.OpCode == InviteOpCode {
-				if client.serverChannel != nil {
-					client.serverChannel(message)
-				}
-			} else {
-				if client.channels[message.ChannelName] != nil {
-					callback := client.channels[message.ChannelName]
-					callback(message)
-				}
-				if client.channels[kAllMessages] != nil {
-					callback := client.channels[kAllMessages]
-					callback(message)
-				}
-			}
+		if err == io.EOF {
+			return nil
 		}
-	}
-}
-
-//connect to the stream, if not connected
-func (client *Client) Connect() error {
-	if !client.isConnected {
-		client.channels = make(map[string]func(Message))
-		conn, err := net.Dial("tcp", client.url.Host)
 		if err != nil {
 			return err
 		}
-		webConn, _, err := websocket.NewClient(conn, client.url, client.headers, bufferSize, bufferSize)
-		if err != nil {
-			return err
-		}
-		client.conn = webConn
 	}
-	return nil
 }
 
-//disconnect from the stream, if connected
-func (client *Client) Disconnect() {
-	if client.isConnected {
-		client.channels = make(map[string]func(Message))
-		client.serverChannel = nil
-		client.conn.Close()
-		client.isConnected = false
+func (c *Client) write(message *Message) {
+	buf, err := message.Marshal()
+	if err != nil {
+		log.Fatal(err)
 	}
+	if err := c.ws.WriteMessage(websocket.BinaryMessage, buf); err != nil {
+		log.Fatal(err) // do something else here.
+	}
+
+}
+
+func (c *Client) decodeMessage() *Message {
+	_, buf, err := c.ws.ReadMessage()
+	if err != nil {
+		// handle error
+	}
+	message, err := Unmarshal(buf)
+	if err != nil {
+		// handle error
+	}
+	return message
 }

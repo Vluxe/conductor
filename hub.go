@@ -1,174 +1,218 @@
-// Copyright 2013/2014 The Gorilla WebSocket & Conductor Authors. All rights reserved.
-// some code borrowed from example chat program of
-// https://github.com/gorilla/websocket
-// Gorilla under BSD-style. See it's LICENSE file for more info.
-// Conductor under Apache v2. License can be found in the LICENSE file.
-
 package conductor
 
-// hub maintains the set of active connections and broadcasts messages to the
-// connections.
-type hub struct {
-	// The connections based on channel
-	channels map[string][]*connection
+import (
+	"fmt"
+)
 
-	//All registered peers.
-	peers map[string]*connection
-
-	//All registered connections that aren't peers.
-	clients map[string]*connection
-
-	// Inbound messages from the connections.
-	broadcast chan broadcastWriter
-
-	// Join a new channel
-	bind chan broadcastWriter
-
-	// leave a new channel
-	unbind chan broadcastWriter
-
-	// Register requests from the connections.
-	register chan *connection
-
-	// Unregister requests from connections.
-	unregister chan *connection
-
-	// invite to a channel.
-	invite chan broadcastWriter
+// ServerHubHandler is the based interface for handling one to one server message between the client and the server.
+type ServerHubHandler interface {
+	Process(conn Connection, message *Message)
 }
 
-//  createHub creates our hub.
-func createHub() hub {
-	return hub{
-		broadcast:  make(chan broadcastWriter),
-		register:   make(chan *connection),
-		unregister: make(chan *connection),
-		bind:       make(chan broadcastWriter),
-		unbind:     make(chan broadcastWriter),
-		invite:     make(chan broadcastWriter),
-		channels:   make(map[string][]*connection),
-		peers:      make(map[string]*connection),
-		clients:    make(map[string]*connection),
+// HubConnection is the an interface to hide the other methods of the Hub.
+// This way `Connection`s can only write to the Hub and not call its other methods.
+type HubConnection interface {
+	Write(conn Connection, message *Message)
+	ReceivedSisterMessage(conn Connection, message *Message)
+}
+
+// Hub is the based interface for what methods aHub should provide.
+type Hub interface {
+	RunLoop()                                                // This is the master run loop that processes all the messages that come into the channel.
+	Write(conn Connection, message *Message)                 // Not sure if I like the duplicate method trick yet...
+	Auth() ConnectionAuth                                    // This returns the current auther (if one is used)
+	SisterManager() SisterManager                            // This returns the current sister manager (if one is used)
+	ReceivedSisterMessage(conn Connection, message *Message) // Handle a sister message into this hub
+}
+
+type hubData struct {
+	conn     Connection
+	message  *Message
+	isSister bool
+}
+
+// MultiPlexHub is the standard hub that handles interaction between clients and other hubs.
+type MultiPlexHub struct {
+	// The connections on each channel.
+	channels map[string][]Connection
+
+	// The channel we get messages from the hub on.
+	messages chan *hubData
+
+	// The deduper implementation to use (if any).
+	deduper DeDuplication
+
+	// The authentication implementation to use (if any).
+	auther ConnectionAuth
+
+	// The storage implementation to use (if any).
+	storer Storage
+
+	// The server handler implementation to use (if any).
+	serverHandler ServerHubHandler
+
+	// The sisters registered with the hub
+	sisterManager SisterManager
+}
+
+func newMultiPlexHub(deduper DeDuplication, auther ConnectionAuth, storer Storage,
+	serverHandler ServerHubHandler, sisterManager SisterManager) *MultiPlexHub {
+	return &MultiPlexHub{channels: make(map[string][]Connection),
+		messages:      make(chan *hubData),
+		deduper:       deduper,
+		auther:        auther,
+		storer:        storer,
+		serverHandler: serverHandler,
+		sisterManager: sisterManager}
+}
+
+// Auth returns the auther object for use in the server.
+func (h *MultiPlexHub) Auth() ConnectionAuth {
+	return h.auther
+}
+
+// SisterManager returns the auther object for use in the server.
+func (h *MultiPlexHub) SisterManager() SisterManager {
+	return h.sisterManager
+}
+
+// RunLoop is the loop that runs forever processing messages from connections.
+func (h *MultiPlexHub) RunLoop() {
+	if h.deduper != nil {
+		h.deduper.Start()
 	}
-}
-
-// run is the runloop that controls all the messages sent within conductor.
-func (h *hub) run() {
 	for { // blocking loop that waits for stimulation
 		select {
-		case c := <-h.register:
-			h.addConnection(c)
-		case c := <-h.unregister:
-			h.closeConnections(c)
-		case b := <-h.broadcast:
-			h.broadcastMessage(b)
-		case b := <-h.bind:
-			h.bindChannel(b)
-		case b := <-h.unbind:
-			h.unbindChannel(b)
-		case b := <-h.invite:
-			h.inviteUser(b)
-		}
-	}
-}
-
-// closeConnections removes a connection from the hub.
-func (h *hub) closeConnections(c *connection) {
-	delete(h.peers, c.name)
-	delete(h.clients, c.name)
-	for _, name := range c.channels {
-		conns := h.channels[name]
-		for i, conn := range conns {
-			if c == conn {
-				h.channels[name] = append(conns[:i], conns[i+1:]...) // remove connection from channel.
-				h.processUnbindChannel(name)
-			} else {
-				conn.send <- Message{Name: c.name, Body: "", ChannelName: name, OpCode: UnBindOpCode}
+		case data := <-h.messages:
+			if data != nil {
+				h.preProcessHubData(data)
 			}
 		}
 	}
 }
 
-// addConnection adds a connection to the hub.
-func (h *hub) addConnection(c *connection) {
-	if c.peer {
-		if h.peers[c.name] == nil {
-			h.peers[c.name] = c
-			for name, _ := range h.channels {
-				h.channels[name] = append(h.channels[name], c)
-			}
+// Write is the implementation of HubConnection. This way clients can write messages to the hub without being able to call RunLoop.
+func (h *MultiPlexHub) Write(conn Connection, message *Message) {
+	h.messages <- &hubData{conn: conn, message: message, isSister: false}
+}
+
+// ReceivedSisterMessage is just like Write, expect it sets the isSister flag.
+func (h *MultiPlexHub) ReceivedSisterMessage(conn Connection, message *Message) {
+	h.messages <- &hubData{conn: conn, message: message, isSister: true}
+}
+
+func (h *MultiPlexHub) preProcessHubData(data *hubData) {
+	// TODO: validated message is legit here (it has a proper op code, id, etc)
+	if h.deduper != nil {
+		if !h.deduper.IsDuplicate(data.message) {
+			h.deduper.Add(data.message)
+			h.processMessage(data)
 		}
-	} else if h.clients[c.name] == nil {
-		h.clients[c.name] = c
+	} else {
+		h.processMessage(data)
 	}
 }
 
-// ifConnectionExist checks if the peer has already been added.
-func (h *hub) ifConnectionExist(name string) bool {
-	if h.peers[name] != nil {
-		return true
+func (h *MultiPlexHub) processMessage(data *hubData) {
+	switch opcode := data.message.Opcode; opcode {
+	case BindOpcode:
+		h.bindConnectionToChannel(data)
+	case UnbindOpcode:
+		h.unbindConnectionToChannel(data)
+	case WriteOpcode:
+		h.writeToChannel(data)
+	case CleanUpOpcode:
+		h.connectionCleanup(data)
+	case ServerOpcode:
+		h.serverMessage(data)
+	case MetaQueryOpcode:
+		h.metaQueryMessage(data)
+	case MetaQueryResponseOpcode:
+		h.handleMetaQueryResponse(data)
+	default:
+		break
 	}
-	return false
 }
 
-// bindChannel adds a connection to a channel.
-func (h *hub) bindChannel(b broadcastWriter) {
-	//we haven't seen this channel before and need to let the peers know
-	if !b.conn.peer {
-		if h.channels[b.message.ChannelName] == nil {
-			for _, c := range h.peers {
-				h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], c)
-				c.send <- Message{ChannelName: b.message.ChannelName, OpCode: BindOpCode}
-			}
-		}
+func (h *MultiPlexHub) bindConnectionToChannel(data *hubData) {
+	if h.auther != nil && !h.auther.CanBind(data.conn, data.message) {
+		return //no bind access!
 	}
-	h.channels[b.message.ChannelName] = append(h.channels[b.message.ChannelName], b.conn)
+	connections := h.channels[data.message.ChannelName]
+	connections = append(connections, data.conn)
+	h.channels[data.message.ChannelName] = connections
+	data.conn.SetChannels(append(data.conn.Channels(), data.message.ChannelName))
 }
 
-// unbindChannel removes a connection from the channel.
-func (h *hub) unbindChannel(b broadcastWriter) {
-	conns := h.channels[b.message.ChannelName]
-	for i, conn := range conns {
-		if b.conn == conn {
-			h.channels[b.message.ChannelName] = append(conns[:i], conns[i+1:]...)
-			h.processUnbindChannel(b.message.ChannelName)
+func (h *MultiPlexHub) unbindConnectionToChannel(data *hubData) {
+	h.removeConnection(data.message.ChannelName, data.conn)
+	for i, channel := range data.conn.Channels() {
+		if channel == data.message.ChannelName {
+			data.conn.SetChannels(append(data.conn.Channels()[:i], data.conn.Channels()[i+1:]...))
 			break
 		}
 	}
 }
 
-// processUnbindChannel handles cleaning up a channel.
-func (h *hub) processUnbindChannel(channelName string) {
-	//delete channel if no longer in use
-	if len(h.channels[channelName]) <= len(h.peers) {
-		delete(h.channels, channelName)
+func (h *MultiPlexHub) writeToChannel(data *hubData) {
+	if !data.isSister {
+		if h.auther != nil && !h.auther.CanWrite(data.conn, data.message) {
+			fmt.Println("blocked unautherized message")
+			return //no write access!
+		}
+		if h.storer != nil {
+			h.storer.Store(data.conn, data.message)
+		}
 	}
-}
 
-// inviteUser sends an invite to another client. Will also forward to other peers.
-func (h *hub) inviteUser(b broadcastWriter) {
-	conn := h.clients[b.message.Body]
-	if conn != nil {
-		conn.send <- *b.message
-	}
-	//send the invite to the peers in case the user is on another server
-	for _, c := range h.peers {
-		c.send <- *b.message
-	}
-}
-
-// broadcastMessage sends a message on a channel.
-func (h *hub) broadcastMessage(b broadcastWriter) {
-	for _, c := range h.channels[b.message.ChannelName] {
-		if b.peer && c.peer {
+	//send the message to our local clients on this channel
+	connections := h.channels[data.message.ChannelName]
+	for _, conn := range connections {
+		if data.conn == conn {
 			continue
 		}
-		if c != b.conn {
-			select {
-			case c.send <- *b.message:
-			default:
-				h.closeConnections(c)
-			}
+		if err := conn.Write(data.message); err != nil {
+			fmt.Println(err) // TODO: do something else here.
 		}
+	}
+	//send the message to the sister servers
+	if h.sisterManager != nil {
+		h.sisterManager.Write(data.message)
+	}
+}
+
+func (h *MultiPlexHub) connectionCleanup(data *hubData) {
+	for _, channel := range data.conn.Channels() {
+		h.removeConnection(channel, data.conn)
+	}
+}
+
+func (h *MultiPlexHub) removeConnection(channelName string, c Connection) {
+	connections := h.channels[channelName]
+	for i, conn := range connections {
+		if c == conn {
+			connections = append(connections[:i], connections[i+1:]...)
+			h.channels[channelName] = connections
+			break
+		}
+	}
+}
+
+func (h *MultiPlexHub) serverMessage(data *hubData) {
+	if h.serverHandler != nil {
+		h.serverHandler.Process(data.conn, data.message)
+	}
+}
+
+func (h *MultiPlexHub) metaQueryMessage(data *hubData) {
+	if h.sisterManager != nil {
+		b := h.sisterManager.MetaQueryResponse()
+		data.conn.Write(&Message{Opcode: MetaQueryResponseOpcode, ChannelName: "", Uuid: newUUID(), Body: b})
+	}
+}
+
+func (h *MultiPlexHub) handleMetaQueryResponse(data *hubData) {
+	if h.sisterManager != nil {
+		h.sisterManager.HandleMetaQueryResponse(data.message.Body)
 	}
 }

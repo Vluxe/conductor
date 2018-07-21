@@ -1,71 +1,108 @@
 package main
 
 import (
-	"flag"
+	"bufio"
+	"encoding/json"
 	"fmt"
-	"github.com/Vluxe/conductor"
 	"log"
-	"net/http"
+	"os"
+	"time"
+
+	"github.com/Vluxe/conductor"
+	"github.com/acmacalister/skittles"
 )
 
-type Storage int
-type Query int
-type Auther int
+type user struct {
+	Text string `json:"text"`
+}
 
-var addr = flag.Int("addr", 8080, "http service address")
-var peer = flag.Int("peer", 8081, "http service address")
+type serverReq struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+type serverResp struct {
+	Type  string `json:"type"`
+	Count string `json:"count"`
+}
+
+type serverHandler struct {
+	storer *conductor.SimpleStorage
+}
 
 func main() {
-	flag.Parse()
-	var s Storage
-	var q Query
-	var a Auther
-	server := conductor.CreateServer(*addr, "FakeToken")
-	server.Notification = s
-	server.ServerQuery = q
-	server.Auth = a
-	peerUrl := fmt.Sprintf("ws://localhost:%d", *peer)
-	log.Println("peerUrl: ", peerUrl)
-	server.AddPeer(peerUrl)
-	err := server.Start()
+	deduper := conductor.NewDeDuper(time.Second*10, time.Second*30)
+	auther := conductor.NewSimpleAuth()
+	storer := conductor.NewSimpleStorage(100)
+	handler := &serverHandler{storer: storer}
+	server := conductor.New(8080, deduper, auther, storer, handler)
+	go server.Start(true)
+
+	go func() {
+		client, err := conductor.NewClient("ws://localhost:8080")
+		if err != nil {
+			log.Fatal(skittles.BoldRed(err))
+		}
+
+		client.Bind("hello")
+		for {
+			select {
+			case message := <-client.Read:
+				switch opcode := message.Opcode; opcode {
+				case conductor.WriteOpcode:
+					var u user
+					json.Unmarshal(message.Body, &u)
+					fmt.Print(skittles.Cyan(u.Text))
+				case conductor.ServerOpcode:
+					var resp serverResp
+					json.Unmarshal(message.Body, &resp)
+					fmt.Print(skittles.Cyan("message history count: " + resp.Count))
+				default:
+					break
+				}
+
+			}
+		}
+	}()
+
+	client, err := conductor.NewClient("ws://localhost:8080")
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(skittles.BoldRed(err))
+	}
+	client.Bind("hello")
+
+	fmt.Println(skittles.BoldGreen("Starting reader..."))
+	reader := bufio.NewReader(os.Stdin)
+	//i := 0
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			log.Fatal(skittles.BoldRed(err))
+		}
+
+		u := user{Text: line}
+		b, _ := json.Marshal(u)
+		client.Write("hello", b)
+		// i++
+		// if i%2 == 0 {
+		// 	u := serverReq{Type: "history", Name: "hello"}
+		// 	b, _ := json.Marshal(u)
+		// 	client.ServerMessage(b)
+		// }
 	}
 }
 
-func (s Storage) PersistentHandler(message conductor.Message, token string) {
-	fmt.Println("store some stuff: ", message.Body)
-}
-
-func (s Storage) BindHandler(message conductor.Message, token string) {
-	fmt.Printf("%s bound to: %s\n", message.Name, message.ChannelName)
-}
-
-func (s Storage) UnBindHandler(message conductor.Message, token string) {
-	fmt.Printf("%s unbound from: %s\n", message.Name, message.ChannelName)
-}
-
-func (s Storage) InviteHandler(message conductor.Message, token string) {
-	fmt.Println("got an invitation.")
-}
-
-func (q Query) QueryHandler(message conductor.Message, token string) conductor.Message {
-	fmt.Println("got a query: ", message.Body)
-	return conductor.Message{Body: "nobody\n", ChannelName: "", OpCode: conductor.ServerOpCode}
-}
-
-func (a Auther) InitalAuthHandler(r *http.Request, token string) (bool, string) {
-	return true, "Bob"
-}
-
-func (a Auther) ChannelAuthHandler(message conductor.Message, token string) bool {
-	return true
-}
-
-func (a Auther) MessageAuthHandler(message conductor.Message, token string) bool {
-	return true
-}
-
-func (a Auther) MessagAuthBoundHandler(message conductor.Message, token string) bool {
-	return true
+func (s *serverHandler) Process(conn conductor.Connection, message *conductor.Message) {
+	//fmt.Println("got a server message!")
+	// var req serverReq
+	// json.Unmarshal(message.Body, &req)
+	// //fmt.Println("type: " + req.Type)
+	// if req.Type == "history" {
+	// 	messages := s.storer.Get(req.Name)
+	// 	count := strconv.Itoa(len(messages))
+	// 	//fmt.Println("count: " + count)
+	// 	resp := serverResp{Type: "history", Count: count}
+	// 	b, _ := json.Marshal(resp)
+	// 	conn.Write(&conductor.Message{Opcode: conductor.ServerOpcode, ChannelName: "", Body: b})
+	// }
 }
