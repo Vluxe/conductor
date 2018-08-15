@@ -157,7 +157,7 @@ func (h *MultiPlexHub) unbindConnectionToChannel(data *hubData) {
 func (h *MultiPlexHub) writeToChannel(data *hubData) {
 	if !data.isSister {
 		if h.auther != nil && !h.auther.CanWrite(data.conn, data.message) {
-			fmt.Println("blocked unautherized message")
+			fmt.Println("blocked unauthorized message")
 			return //no write access!
 		}
 		if h.storer != nil {
@@ -173,6 +173,8 @@ func (h *MultiPlexHub) writeToChannel(data *hubData) {
 		}
 		if err := conn.Write(data.message); err != nil {
 			fmt.Println(err) // TODO: do something else here.
+		} else if h.storer != nil {
+			h.storer.SentTo(data.conn, conn, data.message)
 		}
 	}
 	//send the message to the sister servers
@@ -203,6 +205,8 @@ func (h *MultiPlexHub) serverMessage(data *hubData) {
 		h.serverHandler.Process(data.conn, data.message)
 	}
 }
+
+//Probably going to remove these with the new SWIM stuff.
 
 func (h *MultiPlexHub) metaQueryMessage(data *hubData) {
 	if h.sisterManager != nil {
